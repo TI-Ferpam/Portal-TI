@@ -170,7 +170,7 @@ elif opcao_menu == "🔍 Consultar Chamados" and st.session_state.tela == "dashb
 
 
 # ============================================================
-# ESTILIZAÇÃO CSS CUSTOMIZADA
+# ESTILIZAÇÃO CSS CUSTOMIZADA (PERFEITA PARA AMBOS OS TEMAS)
 # ============================================================
 
 if modo_escuro:
@@ -182,30 +182,44 @@ if modo_escuro:
     text_muted = "#94a3b8"
     plotly_template = "plotly_dark"
     input_bg = "#1e293b"
+    btn_bg = "#1e293b"
+    btn_text = "#f8fafc"
+    btn_border = "#334155"
 else:
-    bg_app = "#f8fafc"
+    bg_app = "#f1f5f9"
     bg_sidebar = "#ffffff"
     bg_card = "#ffffff"
-    border_card = "#e2e8f0"
+    border_card = "#cbd5e1"
     text_main = "#0f172a"
-    text_muted = "#64748b"
+    text_muted = "#475569"
     plotly_template = "plotly_white"
     input_bg = "#ffffff"
+    btn_bg = "#ffffff"
+    btn_text = "#0f172a"
+    btn_border = "#cbd5e1"
 
 st.markdown(f"""
 <style>
+    /* Remover barra preta do topo do Streamlit */
+    header[data-testid="stHeader"] {{
+        background-color: transparent !important;
+    }}
+    
     .stApp {{ background-color: {bg_app} !important; }}
     section[data-testid="stSidebar"] {{ background-color: {bg_sidebar} !important; border-right: 1px solid {border_card}; }}
     
+    /* Cartões Metric */
     div[data-testid="stMetric"] {{
         background-color: {bg_card} !important;
         border: 1px solid {border_card} !important;
         border-radius: 12px !important;
         padding: 16px 20px !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }}
     div[data-testid="stMetricLabel"] label {{ color: {text_muted} !important; font-weight: 600 !important; }}
     div[data-testid="stMetricValue"] div {{ color: {text_main} !important; font-weight: 800 !important; }}
     
+    /* Containers e Bloco Vertical */
     div[data-testid="stVerticalBlock"] > div[style*="border"] {{
         background-color: {bg_card} !important;
         border: 1px solid {border_card} !important;
@@ -213,17 +227,38 @@ st.markdown(f"""
         padding: 18px !important;
     }}
     
+    /* Textos Gerais */
     h1, h2, h3, h4, h5, h6, label, p, span {{ color: {text_main} !important; }}
-    .stCaption {{ color: {text_muted} !important; }}
+    .stCaption, small {{ color: {text_muted} !important; }}
 
+    /* Inputs e Selectboxes */
     div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {{
         background-color: {input_bg} !important;
         border-color: {border_card} !important;
         color: {text_main} !important;
         border-radius: 8px !important;
     }}
+    div[data-baseweb="popover"] ul {{
+        background-color: {bg_card} !important;
+    }}
+    div[data-baseweb="popover"] li {{
+        color: {text_main} !important;
+    }}
 
-    .stButton button {{ border-radius: 8px !important; font-weight: 600 !important; }}
+    /* Botões Padrão (Secondary) */
+    .stButton button {{
+        background-color: {btn_bg} !important;
+        color: {btn_text} !important;
+        border: 1px solid {btn_border} !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        transition: all 0.2s ease;
+    }}
+    .stButton button:hover {{
+        border-color: #2563eb !important;
+        color: #2563eb !important;
+    }}
+
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
 </style>
@@ -291,7 +326,6 @@ def render_barra_progresso(pct, texto_estagio):
 
 
 def extrair_valor_clicado(event):
-    """Extrai o nome do elemento clicado em um gráfico Plotly do Streamlit"""
     if not event or "selection" not in event:
         return None
     points = event["selection"].get("points", [])
@@ -300,18 +334,15 @@ def extrair_valor_clicado(event):
     
     p = points[0]
     
-    # 1. Customdata (mais preciso)
     if "customdata" in p and p["customdata"]:
         val = p["customdata"]
         if isinstance(val, list) and len(val) > 0:
             return str(val[0]).strip()
         return str(val).strip()
     
-    # 2. Label (Gráficos de Rosca / Pizza)
     if "label" in p and p["label"] is not None:
         return str(p["label"]).strip()
         
-    # 3. Y para barras horizontais, X para barras verticais
     if "y" in p and isinstance(p["y"], str) and p["y"]:
         return str(p["y"]).strip()
     if "x" in p and isinstance(p["x"], str) and p["x"]:
@@ -566,18 +597,29 @@ if st.session_state.tela == "dashboard":
 
     st.divider()
 
-    # Função para aplicar tema Plotly
+    # Função para aplicar tema Plotly com autoadaptação de cores e eixos
     def aplicar_layout_plotly(fig):
         fig.update_layout(
             template=plotly_template,
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(color=text_main),
+            font=dict(color=text_main, size=12),
+            legend=dict(font=dict(color=text_main)),
+            xaxis=dict(
+                title=dict(font=dict(color=text_main)),
+                tickfont=dict(color=text_main),
+                gridcolor=border_card
+            ),
+            yaxis=dict(
+                title=dict(font=dict(color=text_main)),
+                tickfont=dict(color=text_main),
+                gridcolor=border_card
+            ),
             margin=dict(t=30, b=20, l=20, r=20)
         )
         return fig
 
-    # GRÁFICOS INTERATIVOS COM SELEÇÃO ATIVA
+    # GRÁFICOS INTERATIVOS
     g1, g2 = st.columns(2)
 
     with g1:
