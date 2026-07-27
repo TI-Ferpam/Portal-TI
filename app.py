@@ -40,9 +40,8 @@ if "ticket_aberto" not in st.session_state:
 
 # MODO CLARO COMO PADRÃO INICIAL
 if "tema" not in st.session_state:
-    st.session_state.tema = "☀️ Claro"
-
-
+    st.session_state.tema = "🌙 Escuro"
+    
 def abrir_ticket(ticket_id):
     st.session_state.ticket_aberto = str(ticket_id).strip()
     st.session_state.tela = "ticket"
