@@ -24,6 +24,6 @@ def conectar_google_sheets():
 def carregar_chamados():
     client = conectar_google_sheets()
     # Substitua pelo nome ou ID exato da sua planilha no Google Drive
-    planilha = client.open("13Fu87VrDiC0NZuQw6zIphbvVkKfle6wEZ98vSjcdl2E").sheet1 
+    planilha = client.open_by_key("13Fu87VrDiC0NZuQw6zIphbvVkKfle6wEZ98vSjcdl2E").sheet1
     dados = planilha.get_all_records()
     return pd.DataFrame(dados)
