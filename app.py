@@ -17,19 +17,42 @@ st.set_page_config(
 
 
 # ============================================================
-# CARREGAMENTO DE DADOS
+# CARREGAMENTO E TRATAMENTO DE DADOS
 # ============================================================
 
 @st.cache_data(ttl=60)
 def carregar_dados():
-    return carregar_chamados()
+    try:
+        data = carregar_chamados()
+        if isinstance(data, pd.DataFrame):
+            df_raw = data
+        else:
+            df_raw = pd.DataFrame(data)
+        
+        # Normalização do nome das colunas
+        df_raw.columns = [str(col).strip().lower() for col in df_raw.columns]
+        
+        # Colunas esperadas
+        colunas_obrigatorias = [
+            "id_chamado", "solicitante", "titulo", "ocorrencia", 
+            "status", "prioridade", "departamento", "tecnico", 
+            "cidade", "atividade_realizada"
+        ]
+        
+        for col in colunas_obrigatorias:
+            if col not in df_raw.columns:
+                df_raw[col] = ""
+                
+        return df_raw
+    except Exception as e:
+        st.error(f"Erro ao carregar dados do Google Sheets: {e}")
+        return pd.DataFrame()
 
 df = carregar_dados()
-df.columns = [str(col).strip() for col in df.columns]
 
 
 # ============================================================
-# GERENCIAMENTO DE ESTADO (SESSION STATE)
+# GERENCIAMENTO DE ESTADO (SESSION STATE & AUTH)
 # ============================================================
 
 if "tela" not in st.session_state:
@@ -38,10 +61,16 @@ if "tela" not in st.session_state:
 if "ticket_aberto" not in st.session_state:
     st.session_state.ticket_aberto = None
 
-# MODO CLARO COMO PADRÃO INICIAL
 if "tema" not in st.session_state:
     st.session_state.tema = "🌙 Escuro"
-    
+
+if "usuario_logado" not in st.session_state:
+    st.session_state.usuario_logado = ""
+
+if "perfil_usuario" not in st.session_state:
+    st.session_state.perfil_usuario = "Usuário Comum"  # Opções: "Usuário Comum", "Técnico / Admin"
+
+
 def abrir_ticket(ticket_id):
     st.session_state.ticket_aberto = str(ticket_id).strip()
     st.session_state.tela = "ticket"
@@ -52,14 +81,50 @@ def voltar_busca():
     st.session_state.tela = "busca"
 
 
+# Lista de solicitantes cadastrados para simulação de login
+lista_solicitantes = sorted(
+    [s for s in df["solicitante"].dropna().astype(str).str.strip().unique() if s],
+    key=str.casefold
+)
+
+
 # ============================================================
-# MENU LATERAL & TEMA (DARK / LIGHT)
+# MENU LATERAL, PERFIL E TEMA (DARK / LIGHT)
 # ============================================================
 
 st.sidebar.image("https://cdn-icons-png.flaticon.com/512/1063/1063376.png", width=55)
 st.sidebar.title("Portal TI")
 
-# Seleção do Tema (Modo Claro padrão)
+# --- MÓDULO DE AUTENTICAÇÃO / CONTROLE DE ACESSO ---
+st.sidebar.markdown("### 🔐 Controle de Acesso")
+
+perfil_selecionado = st.sidebar.selectbox(
+    "Nível de Permissão",
+    ["Usuário Comum", "Técnico / Admin"],
+    index=0 if st.session_state.perfil_usuario == "Usuário Comum" else 1,
+    key="select_perfil"
+)
+st.session_state.perfil_usuario = perfil_selecionado
+
+if st.session_state.perfil_usuario == "Usuário Comum":
+    idx_solic = 0
+    if st.session_state.usuario_logado in lista_solicitantes:
+        idx_solic = lista_solicitantes.index(st.session_state.usuario_logado)
+    
+    usuario_input = st.sidebar.selectbox(
+        "Identifique-se (Solicitante)",
+        options=lista_solicitantes,
+        index=idx_solic if lista_solicitantes else 0,
+        key="select_usuario_logado"
+    )
+    st.session_state.usuario_logado = usuario_input
+else:
+    st.sidebar.success("⚡ Modo Administrador Ativo")
+    st.session_state.usuario_logado = "ADMINISTRADOR"
+
+st.sidebar.divider()
+
+# --- SELEÇÃO DE TEMA ---
 opcao_tema = st.sidebar.selectbox(
     "🎨 Aparência / Tema",
     ["☀️ Claro", "🌙 Escuro"],
@@ -71,10 +136,14 @@ modo_escuro = (st.session_state.tema == "🌙 Escuro")
 
 st.sidebar.divider()
 
-# Navegação entre Telas
+# --- NAVEGAÇÃO ENTRE TELAS ---
+opcoes_menu = ["🔍 Consultar Chamados"]
+if st.session_state.perfil_usuario == "Técnico / Admin":
+    opcoes_menu.append("📊 Dashboard de Indicadores")
+
 opcao_menu = st.sidebar.radio(
     "📍 Navegação",
-    ["🔍 Consultar Chamados", "📊 Dashboard de Indicadores"],
+    opcoes_menu,
     index=0 if st.session_state.tela in ["busca", "ticket"] else 1
 )
 
@@ -259,6 +328,15 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
         df["id_chamado"].astype(str).str.strip().str.casefold() == ticket_id.casefold()
     ]
 
+    # Validação de Segurança: Impede acesso direto por URL/State a tickets alheios em perfil comum
+    if st.session_state.perfil_usuario == "Usuário Comum" and not resultado.empty:
+        solic_chamado = str(resultado.iloc[0].get("solicitante", "")).strip().casefold()
+        solic_logado = str(st.session_state.usuario_logado).strip().casefold()
+        if solic_chamado != solic_logado:
+            st.error("⛔ Acesso negado. Você não tem permissão para visualizar o chamado de outro usuário.")
+            st.button("← Voltar para meus tickets", on_click=voltar_busca)
+            st.stop()
+
     if resultado.empty:
         st.error(f"Não foi possível encontrar o ticket #{ticket_id}.")
         st.button("← Voltar para a busca", on_click=voltar_busca)
@@ -321,38 +399,55 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
 if st.session_state.tela == "busca":
 
     st.title("🎫 Portal de Chamados de TI")
-    st.write("Acompanhe e consulte o andamento dos seus chamados técnicos.")
+    
+    # Restrição de escopo de busca de acordo com o perfil
+    if st.session_state.perfil_usuario == "Usuário Comum":
+        st.write(f"Bem-vindo(a), **{st.session_state.usuario_logado}**! Acompanhe aqui seus chamados abertos.")
+        
+        # Filtro prévio: usuário comum só enxerga o que é dele
+        df_base = df[df["solicitante"].astype(str).str.strip().str.casefold() == st.session_state.usuario_logado.strip().casefold()]
+        
+        c1, c2 = st.columns([2, 2])
+        with c1:
+            ticket_input = st.text_input("Buscar por Número do Ticket", placeholder="Ex.: 933")
+        with c2:
+            st.write("") # Espaçamento
+            st.write("")
+            pesquisar = st.button("🔍 Pesquisar", type="primary", use_container_width=True)
+            
+        nome_input = st.session_state.usuario_logado
 
-    nomes = df["solicitante"].dropna().astype(str).str.strip()
-    nomes = sorted(nomes[nomes != ""].unique(), key=str.casefold)
+    else: # Técnico / Admin
+        st.write("Visão Geral do Administrador: Consulte e gerencie chamados de qualquer colaborador.")
+        
+        df_base = df.copy()
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            ticket_input = st.text_input("Número do Ticket", placeholder="Ex.: 933")
+        with c2:
+            nome_input = st.selectbox(
+                "Nome do Solicitante",
+                options=[""] + lista_solicitantes,
+                format_func=lambda x: "Todos os Solicitantes" if x == "" else x
+            )
 
-    c1, c2 = st.columns(2)
-    with c1:
-        ticket_input = st.text_input("Número do Ticket", placeholder="Ex.: 933")
-    with c2:
-        nome_input = st.selectbox(
-            "Nome do Solicitante",
-            options=[""] + nomes,
-            format_func=lambda x: "Digite ou selecione seu nome..." if x == "" else x
-        )
+        pesquisar = st.button("🔍 Pesquisar Chamados", type="primary", use_container_width=True)
 
-    pesquisar = st.button("🔍 Pesquisar Chamados", type="primary", use_container_width=True)
-
-    if pesquisar:
-        res = df.copy()
+    # Execução e Exibição de Resultados
+    if pesquisar or st.session_state.perfil_usuario == "Usuário Comum":
+        res = df_base.copy()
 
         if ticket_input.strip():
             res = res[res["id_chamado"].astype(str).str.strip().str.contains(ticket_input.strip(), case=False, na=False)]
 
-        if nome_input:
+        if st.session_state.perfil_usuario == "Técnico / Admin" and nome_input:
             res = res[res["solicitante"].astype(str).str.strip().str.casefold() == nome_input.strip().casefold()]
 
         st.divider()
 
-        if not ticket_input.strip() and not nome_input:
-            st.info("💡 Informe o número do ticket ou selecione o solicitante para iniciar a busca.")
-        elif res.empty:
-            st.warning("Nenhum chamado foi localizado com os dados informados.")
+        if res.empty:
+            st.warning("Nenhum chamado foi localizado com os critérios informados.")
         else:
             st.subheader(f"Encontrado(s) {len(res)} chamado(s)")
 
@@ -394,10 +489,15 @@ if st.session_state.tela == "busca":
 
 
 # ============================================================
-# TELA 3: DASHBOARD DE INDICADORES
+# TELA 3: DASHBOARD DE INDICADORES (EXCLUSIVO ADMIN / TÉCNICO)
 # ============================================================
 
 if st.session_state.tela == "dashboard":
+
+    # Proteção de Rota
+    if st.session_state.perfil_usuario != "Técnico / Admin":
+        st.error("⛔ Acesso Restrito: O Dashboard de Indicadores é exclusivo para Técnicos e Administradores.")
+        st.stop()
 
     st.title("📊 Dashboard de Indicadores de TI")
     st.write("Análise visual detalhada sobre volumetria, prazos, técnicos e departamentos.")
