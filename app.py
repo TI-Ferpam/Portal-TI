@@ -45,6 +45,7 @@ def carregar_dados():
         # Limpeza básica nos campos de texto
         df_raw["solicitante"] = df_raw["solicitante"].astype(str).str.strip()
         df_raw["id_chamado"] = df_raw["id_chamado"].astype(str).str.strip()
+        df_raw["status"] = df_raw["status"].astype(str).str.strip()
         
         return df_raw
     except Exception as e:
@@ -81,9 +82,15 @@ def voltar_busca():
     st.session_state.tela = "busca"
 
 
-# Lista limpa e sem duplicatas para o Admin
+# Lista limpa de solicitantes para o Admin
 lista_solicitantes_admin = sorted(
     list(set([s for s in df["solicitante"].unique() if s and s.casefold() != "nan"])),
+    key=str.casefold
+)
+
+# Lista unificada de status
+lista_status_opcoes = ["Todos os Status"] + sorted(
+    list(set([s for s in df["status"].unique() if s and s.casefold() != "nan"])),
     key=str.casefold
 )
 
@@ -331,55 +338,41 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
 # TELA 2: BUSCA DE CHAMADOS
 # ============================================================
 
-# ============================================================
-# TELA 2: BUSCA DE CHAMADOS
-# ============================================================
-
 if st.session_state.tela == "busca":
 
     st.title("🎫 Portal de Consulta de Chamados")
 
     if not st.session_state.autenticado_admin:
-        st.write("Digite o **Número do Chamado** ou o **Seu Nome** e selecione o status para acompanhar seus chamados.")
+        st.write("Digite o **Número do Chamado** ou o **Seu Nome** e escolha o status para consultar.")
         
-        # Filtros para usuário comum
         c1, c2, c3 = st.columns([1.5, 2, 1.5])
         with c1:
             input_ticket = st.text_input("Número do Chamado", placeholder="Ex.: 933")
         with c2:
             input_nome = st.text_input("Seu Nome (Solicitante)", placeholder="Ex.: Carla")
         with c3:
-            # Opções dinâmicas + fixas para os status mais comuns
-            lista_status = ["Todos os Status"] + sorted([
-                s for s in df["status"].dropna().astype(str).str.strip().unique() 
-                if s and s.casefold() != "nan"
-            ], key=str.casefold)
-            
-            input_status = st.selectbox("Status / Pendência", options=lista_status)
+            input_status = st.selectbox("Status / Pendência", options=lista_status_opcoes, key="usr_status")
 
         btn_pesquisar = st.button("🔍 Pesquisar Chamado", type="primary", use_container_width=True)
 
         if btn_pesquisar or input_ticket.strip() or input_nome.strip() or input_status != "Todos os Status":
             res = df.copy()
 
-            # Filtro por Ticket
             if input_ticket.strip():
                 res = res[res["id_chamado"].str.contains(input_ticket.strip(), case=False, na=False)]
             
-            # Filtro por Nome
             if input_nome.strip():
                 res = res[res["solicitante"].str.contains(input_nome.strip(), case=False, na=False)]
 
-            # Filtro por Status / Pendência
             if input_status != "Todos os Status":
-                res = res[res["status"].astype(str).str.strip().str.casefold() == input_status.strip().casefold()]
+                res = res[res["status"].str.casefold() == input_status.casefold()]
 
             st.divider()
 
             if not input_ticket.strip() and not input_nome.strip() and input_status == "Todos os Status":
-                st.info("💡 Digite um número de ticket, seu nome ou escolha um status acima para iniciar a busca.")
+                st.info("💡 Informe o número do ticket, seu nome ou escolha um status para iniciar.")
             elif res.empty:
-                st.warning("Nenhum chamado encontrado com esses critérios de busca.")
+                st.warning("Nenhum chamado foi encontrado com esses critérios.")
             else:
                 st.subheader(f"Localizado(s) {len(res)} chamado(s):")
 
@@ -408,23 +401,16 @@ if st.session_state.tela == "busca":
                             st.button("👁️ Ver detalhes", key=f"btn_usr_{t_id}", on_click=abrir_ticket, args=(t_id,), use_container_width=True)
 
     else:
-        # VISÃO ADMINISTRADOR
+        # PAINEL ADMINISTRADOR
         st.write("🔧 **Painel Admin**: Filtragem global de chamados.")
 
         c1, c2, c3 = st.columns([1.5, 2, 1.5])
         with c1:
             input_ticket_admin = st.text_input("Número do Ticket", placeholder="Ex.: 933")
         with c2:
-            input_solic_admin = st.selectbox(
-                "Filtrar por Solicitante",
-                options=["Todos"] + lista_solicitantes_admin
-            )
+            input_solic_admin = st.selectbox("Filtrar por Solicitante", options=["Todos"] + lista_solicitantes_admin)
         with c3:
-            lista_status_admin = ["Todos os Status"] + sorted([
-                s for s in df["status"].dropna().astype(str).str.strip().unique() 
-                if s and s.casefold() != "nan"
-            ], key=str.casefold)
-            input_status_admin = st.selectbox("Status / Pendência", options=lista_status_admin, key="select_status_adm")
+            input_status_admin = st.selectbox("Status / Pendência", options=lista_status_opcoes, key="adm_status")
 
         btn_pesquisar_admin = st.button("🔍 Filtrar Base", type="primary", use_container_width=True)
 
@@ -437,60 +423,7 @@ if st.session_state.tela == "busca":
             res = res[res["solicitante"].str.casefold() == input_solic_admin.casefold()]
 
         if input_status_admin != "Todos os Status":
-            res = res[res["status"].astype(str).str.strip().str.casefold() == input_status_admin.strip().casefold()]
-
-        st.divider()
-
-        if res.empty:
-            st.warning("Nenhum chamado encontrado com estes filtros.")
-        else:
-            st.subheader(f"Total na consulta: {len(res)} chamado(s)")
-            for _, cham in res.iterrows():
-                t_id = str(cham["id_chamado"]).strip()
-                pct, status_txt = calcular_progresso(cham)
-                badge_html = get_status_badge(cham.get("status", ""))
-                bar_html = render_barra_progresso(pct, status_txt)
-
-                with st.container(border=True):
-                    col1, col2 = st.columns([7, 3])
-                    with col1:
-                        st.markdown(f"""
-                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
-                            <span style="font-size: 1.2rem; font-weight: 800;">🎫 #{t_id}</span>
-                            {badge_html}
-                        </div>
-                        <div style="font-size: 1rem; font-weight: 700;">{cham.get('titulo', 'Sem título')}</div>
-                        <div style="font-size: 0.85rem; color: {text_muted};">👤 {cham.get('solicitante', '-')} | 🏢 {cham.get('departamento', '-')}</div>
-                        """, unsafe_allow_html=True)
-                        st.markdown(bar_html, unsafe_allow_html=True)
-
-                    with col2:
-                        st.write("")
-                        st.write("")
-                        st.button("👁️ Ver detalhes", key=f"btn_adm_{t_id}", on_click=abrir_ticket, args=(t_id,), use_container_width=True)
-
-    else:
-        # VISÃO ADMINISTRADOR
-        st.write("🔧 **Painel Admin**: Filtragem global de chamados.")
-
-        c1, c2 = st.columns(2)
-        with c1:
-            input_ticket_admin = st.text_input("Número do Ticket", placeholder="Ex.: 933")
-        with c2:
-            input_solic_admin = st.selectbox(
-                "Filtrar por Solicitante",
-                options=["Todos"] + lista_solicitantes_admin
-            )
-
-        btn_pesquisar_admin = st.button("🔍 Filtrar Base", type="primary", use_container_width=True)
-
-        res = df.copy()
-
-        if input_ticket_admin.strip():
-            res = res[res["id_chamado"].str.contains(input_ticket_admin.strip(), case=False, na=False)]
-
-        if input_solic_admin != "Todos":
-            res = res[res["solicitante"].str.casefold() == input_solic_admin.casefold()]
+            res = res[res["status"].str.casefold() == input_status_admin.casefold()]
 
         st.divider()
 
