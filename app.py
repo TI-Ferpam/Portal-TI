@@ -75,7 +75,6 @@ if "tema" not in st.session_state:
 if "autenticado_admin" not in st.session_state:
     st.session_state.autenticado_admin = False
 
-# Estados de filtro dinâmico para a Dashboard Interativa
 if "filtro_dash_tipo" not in st.session_state:
     st.session_state.filtro_dash_tipo = None
 
@@ -98,7 +97,6 @@ def limpar_filtro_dash():
     st.session_state.filtro_dash_valor = None
 
 
-# Listas auxiliares para selects
 lista_solicitantes_admin = sorted(
     list(set([s for s in df["solicitante"].unique() if s and s.casefold() != "nan"])),
     key=str.casefold
@@ -111,7 +109,7 @@ lista_status_opcoes = ["Todos os Status"] + sorted(
 
 
 # ============================================================
-# MENU LATERAL & SISTEMA DE LOGIN ADMIN / ADMIN
+# MENU LATERAL & AUTENTICAÇÃO
 # ============================================================
 
 st.sidebar.image("https://cdn-icons-png.flaticon.com/512/1063/1063376.png", width=50)
@@ -140,7 +138,6 @@ else:
 
 st.sidebar.divider()
 
-# Alternador de Tema
 opcao_tema = st.sidebar.selectbox(
     "🎨 Aparência / Tema",
     ["☀️ Claro", "🌙 Escuro"],
@@ -152,7 +149,6 @@ modo_escuro = (st.session_state.tema == "🌙 Escuro")
 
 st.sidebar.divider()
 
-# Navegação
 opcoes_menu = ["🔍 Consultar Chamados"]
 if st.session_state.autenticado_admin:
     opcoes_menu.append("📊 Dashboard de Indicadores")
@@ -170,8 +166,11 @@ elif opcao_menu == "🔍 Consultar Chamados" and st.session_state.tela == "dashb
 
 
 # ============================================================
-# ESTILIZAÇÃO CSS CUSTOMIZADA (PERFEITA PARA AMBOS OS TEMAS)
+# ESTILIZAÇÃO CSS CUSTOMIZADA (AZUL FERPAM #003399)
 # ============================================================
+
+AZUL_FERPAM = "#003399"
+AZUL_FERPAM_HOVER = "#002266"
 
 if modo_escuro:
     bg_app = "#0b0f19"
@@ -200,7 +199,7 @@ else:
 
 st.markdown(f"""
 <style>
-    /* Remover barra preta do topo do Streamlit */
+    /* Remover barra preta do topo */
     header[data-testid="stHeader"] {{
         background-color: transparent !important;
     }}
@@ -219,7 +218,7 @@ st.markdown(f"""
     div[data-testid="stMetricLabel"] label {{ color: {text_muted} !important; font-weight: 600 !important; }}
     div[data-testid="stMetricValue"] div {{ color: {text_main} !important; font-weight: 800 !important; }}
     
-    /* Containers e Bloco Vertical */
+    /* Bloco Containers */
     div[data-testid="stVerticalBlock"] > div[style*="border"] {{
         background-color: {bg_card} !important;
         border: 1px solid {border_card} !important;
@@ -227,16 +226,26 @@ st.markdown(f"""
         padding: 18px !important;
     }}
     
-    /* Textos Gerais */
+    /* Textos */
     h1, h2, h3, h4, h5, h6, label, p, span {{ color: {text_main} !important; }}
     .stCaption, small {{ color: {text_muted} !important; }}
 
-    /* Inputs e Selectboxes */
-    div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {{
+    /* Inputs, Text Area e Selectbox (Garantindo fundo correto no modo claro e escuro) */
+    div[data-baseweb="input"] > div, 
+    div[data-baseweb="select"] > div,
+    div[data-baseweb="base-input"],
+    input[type="text"] {{
         background-color: {input_bg} !important;
-        border-color: {border_card} !important;
         color: {text_main} !important;
+        border-color: {border_card} !important;
         border-radius: 8px !important;
+    }}
+    input {{
+        color: {text_main} !important;
+    }}
+    input::placeholder {{
+        color: {text_muted} !important;
+        opacity: 0.7 !important;
     }}
     div[data-baseweb="popover"] ul {{
         background-color: {bg_card} !important;
@@ -245,7 +254,7 @@ st.markdown(f"""
         color: {text_main} !important;
     }}
 
-    /* Botões Padrão (Secondary) */
+    /* Botão Secundário Padrão */
     .stButton button {{
         background-color: {btn_bg} !important;
         color: {btn_text} !important;
@@ -255,8 +264,28 @@ st.markdown(f"""
         transition: all 0.2s ease;
     }}
     .stButton button:hover {{
-        border-color: #2563eb !important;
-        color: #2563eb !important;
+        border-color: {AZUL_FERPAM} !important;
+        color: {AZUL_FERPAM} !important;
+    }}
+
+    /* Botão Primário no Azul FerPAM */
+    button[kind="primary"], .stButton > button[data-testid="stBaseButton-primary"], button[data-testid="stBaseButton-primary"] {{
+        background-color: {AZUL_FERPAM} !important;
+        color: #ffffff !important;
+        border: 1px solid {AZUL_FERPAM} !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+    }}
+    button[kind="primary"]:hover, button[data-testid="stBaseButton-primary"]:hover {{
+        background-color: {AZUL_FERPAM_HOVER} !important;
+        border-color: {AZUL_FERPAM_HOVER} !important;
+        color: #ffffff !important;
+    }}
+
+    /* Cor do foco dos seletores/radios no Azul Ferpam */
+    div[role="radiogroup"] label[data-baseweb="radio"] input:checked + div {{
+        background-color: {AZUL_FERPAM} !important;
+        border-color: {AZUL_FERPAM} !important;
     }}
 
     #MainMenu {{visibility: hidden;}}
@@ -295,8 +324,8 @@ def get_status_badge(status):
         bg = "rgba(16, 185, 129, 0.12)"
         icon = "🟢"
     elif status_lower in ["em andamento", "em atendimento"]:
-        color = "#2563eb"
-        bg = "rgba(37, 99, 235, 0.12)"
+        color = AZUL_FERPAM
+        bg = "rgba(0, 51, 153, 0.12)"
         icon = "🔵"
     elif status_lower in ["pendente", "aberto"]:
         color = "#d97706"
@@ -311,7 +340,7 @@ def get_status_badge(status):
 
 
 def render_barra_progresso(pct, texto_estagio):
-    bar_color = "#10b981" if pct == 100 else ("#2563eb" if pct >= 50 else "#d97706")
+    bar_color = "#10b981" if pct == 100 else (AZUL_FERPAM if pct >= 50 else "#d97706")
     return f"""
     <div style="margin-top: 10px; margin-bottom: 6px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -542,7 +571,7 @@ if st.session_state.tela == "busca":
 
 
 # ============================================================
-# TELA 3: DASHBOARD INTERATIVA (DRILL-DOWN COMPLETO)
+# TELA 3: DASHBOARD INTERATIVA
 # ============================================================
 
 if st.session_state.tela == "dashboard":
@@ -554,7 +583,6 @@ if st.session_state.tela == "dashboard":
     st.title("📊 Dashboard de Indicadores de TI")
     st.caption("⚡ **Interativo**: Clique nos botões dos cartões ou em qualquer barra/fatia dos gráficos para filtrar os chamados!")
 
-    # Cálculo dos indicadores principais
     total_chamados = len(df)
     status_series = df["status"].astype(str).str.strip().str.casefold()
     concluidos = len(df[status_series.isin(["concluído", "concluido", "finalizado", "fechado"])])
@@ -562,7 +590,6 @@ if st.session_state.tela == "dashboard":
     pendentes = len(df[status_series.isin(["pendente", "aberto", "aguardando terceiros", "aguardando solicitante"])])
     taxa_conclusao = (concluidos / total_chamados * 100) if total_chamados > 0 else 0
 
-    # CARTÕES CLICÁVEIS (KPIS)
     m1, m2, m3, m4, m5 = st.columns(5)
 
     with m1:
@@ -597,7 +624,6 @@ if st.session_state.tela == "dashboard":
 
     st.divider()
 
-    # Função para aplicar tema Plotly com autoadaptação de cores e eixos
     def aplicar_layout_plotly(fig):
         fig.update_layout(
             template=plotly_template,
@@ -619,7 +645,6 @@ if st.session_state.tela == "dashboard":
         )
         return fig
 
-    # GRÁFICOS INTERATIVOS
     g1, g2 = st.columns(2)
 
     with g1:
@@ -687,11 +712,6 @@ if st.session_state.tela == "dashboard":
             key="chart_tec"
         )
         processar_clique_grafico(evt_tec, "tecnico")
-
-
-    # ============================================================
-    # EXIBIÇÃO DINÂMICA DA LISTA DE CHAMADOS FILTRADOS
-    # ============================================================
 
     st.divider()
 
