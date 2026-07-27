@@ -46,6 +46,10 @@ def carregar_dados():
         df_raw["solicitante"] = df_raw["solicitante"].astype(str).str.strip()
         df_raw["id_chamado"] = df_raw["id_chamado"].astype(str).str.strip()
         df_raw["status"] = df_raw["status"].astype(str).str.strip()
+        df_raw["prioridade"] = df_raw["prioridade"].astype(str).str.strip()
+        df_raw["departamento"] = df_raw["departamento"].astype(str).str.strip()
+        df_raw["tecnico"] = df_raw["tecnico"].astype(str).str.strip()
+        df_raw["cidade"] = df_raw["cidade"].astype(str).str.strip()
         
         return df_raw
     except Exception as e:
@@ -71,6 +75,13 @@ if "tema" not in st.session_state:
 if "autenticado_admin" not in st.session_state:
     st.session_state.autenticado_admin = False
 
+# Estados de filtro dinâmico para a Dashboard Interativa
+if "filtro_dash_tipo" not in st.session_state:
+    st.session_state.filtro_dash_tipo = None  # ex: 'status', 'prioridade', 'departamento', etc.
+
+if "filtro_dash_valor" not in st.session_state:
+    st.session_state.filtro_dash_valor = None  # ex: 'Concluído', 'Baixa', etc.
+
 
 def abrir_ticket(ticket_id):
     st.session_state.ticket_aberto = str(ticket_id).strip()
@@ -82,13 +93,17 @@ def voltar_busca():
     st.session_state.tela = "busca"
 
 
-# Lista limpa de solicitantes para o Admin
+def limpar_filtro_dash():
+    st.session_state.filtro_dash_tipo = None
+    st.session_state.filtro_dash_valor = None
+
+
+# Listas auxiliares para selects
 lista_solicitantes_admin = sorted(
     list(set([s for s in df["solicitante"].unique() if s and s.casefold() != "nan"])),
     key=str.casefold
 )
 
-# Lista unificada de status
 lista_status_opcoes = ["Todos os Status"] + sorted(
     list(set([s for s in df["status"].unique() if s and s.casefold() != "nan"])),
     key=str.casefold
@@ -120,6 +135,7 @@ else:
     if st.sidebar.button("🚪 Sair do Modo Admin", use_container_width=True):
         st.session_state.autenticado_admin = False
         st.session_state.tela = "busca"
+        limpar_filtro_dash()
         st.rerun()
 
 st.sidebar.divider()
@@ -274,6 +290,17 @@ def render_barra_progresso(pct, texto_estagio):
     """
 
 
+def extrair_clique_plotly(event):
+    """Extrai o nome do item clicado em um gráfico Plotly do Streamlit"""
+    if event and "selection" in event and "points" in event["selection"]:
+        points = event["selection"]["points"]
+        if len(points) > 0:
+            p = points[0]
+            val = p.get("label") or p.get("x") or p.get("y")
+            return str(val).strip() if val is not None else None
+    return None
+
+
 # ============================================================
 # TELA 1: DETALHES DO TICKET
 # ============================================================
@@ -290,7 +317,7 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
     chamado = resultado.iloc[0]
     percentual, etapa_nome = calcular_progresso(chamado)
 
-    st.button("← Voltar para a pesquisa", on_click=voltar_busca)
+    st.button("← Voltar", on_click=voltar_busca)
     st.title(f"🎫 Ticket #{ticket_id}")
     st.caption(f"Solicitante: {chamado.get('solicitante', 'N/A')}")
 
@@ -457,7 +484,7 @@ if st.session_state.tela == "busca":
 
 
 # ============================================================
-# TELA 3: DASHBOARD DE INDICADORES (EXCLUSIVO ADMIN)
+# TELA 3: DASHBOARD DE INDICADORES INTERATIVA (DRILL-DOWN)
 # ============================================================
 
 if st.session_state.tela == "dashboard":
@@ -467,7 +494,9 @@ if st.session_state.tela == "dashboard":
         st.stop()
 
     st.title("📊 Dashboard de Indicadores de TI")
+    st.caption("💡 **Dica:** Clique nos cartões superiores ou em qualquer elemento dos gráficos para listar os chamados filtrados!")
 
+    # Cálculo dos indicadores principais
     total_chamados = len(df)
     status_series = df["status"].astype(str).str.strip().str.casefold()
     concluidos = len(df[status_series.isin(["concluído", "concluido", "finalizado", "fechado"])])
@@ -475,15 +504,42 @@ if st.session_state.tela == "dashboard":
     pendentes = len(df[status_series.isin(["pendente", "aberto"])])
     taxa_conclusao = (concluidos / total_chamados * 100) if total_chamados > 0 else 0
 
+    # CARTÕES INTERATIVOS (KPIs)
     m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Total Chamados", total_chamados)
-    m2.metric("🟢 Concluídos", concluidos)
-    m3.metric("🔵 Em Andamento", em_andamento)
-    m4.metric("🟡 Abertos", pendentes)
-    m5.metric("📈 Taxa Resolução", f"{taxa_conclusao:.1f}%")
+
+    with m1:
+        st.metric("Total Chamados", total_chamados)
+        if st.button("Ver Todos", key="kpi_todos", use_container_width=True):
+            limpar_filtro_dash()
+            st.rerun()
+
+    with m2:
+        st.metric("🟢 Concluídos", concluidos)
+        if st.button("Filtrar Concluídos", key="kpi_concluidos", use_container_width=True):
+            st.session_state.filtro_dash_tipo = "status_grupo"
+            st.session_state.filtro_dash_valor = "Concluídos"
+            st.rerun()
+
+    with m3:
+        st.metric("🔵 Em Andamento", em_andamento)
+        if st.button("Filtrar Andamento", key="kpi_andamento", use_container_width=True):
+            st.session_state.filtro_dash_tipo = "status_grupo"
+            st.session_state.filtro_dash_valor = "Em Andamento"
+            st.rerun()
+
+    with m4:
+        st.metric("🟡 Abertos", pendentes)
+        if st.button("Filtrar Abertos", key="kpi_abertos", use_container_width=True):
+            st.session_state.filtro_dash_tipo = "status_grupo"
+            st.session_state.filtro_dash_valor = "Abertos"
+            st.rerun()
+
+    with m5:
+        st.metric("📈 Taxa Resolução", f"{taxa_conclusao:.1f}%")
 
     st.divider()
 
+    # Função para aplicar tema do Plotly
     def aplicar_layout_plotly(fig):
         fig.update_layout(
             template=plotly_template,
@@ -494,6 +550,7 @@ if st.session_state.tela == "dashboard":
         )
         return fig
 
+    # GRÁFICOS INTERATIVOS
     g1, g2 = st.columns(2)
 
     with g1:
@@ -501,7 +558,18 @@ if st.session_state.tela == "dashboard":
         df_status = df["status"].value_counts().reset_index()
         df_status.columns = ["Status", "Quantidade"]
         fig_status = px.pie(df_status, names="Status", values="Quantidade", hole=0.45)
-        st.plotly_chart(aplicar_layout_plotly(fig_status), use_container_width=True)
+        
+        evt_status = st.plotly_chart(
+            aplicar_layout_plotly(fig_status), 
+            use_container_width=True, 
+            on_select="rerun", 
+            selection_mode="points",
+            key="chart_status"
+        )
+        clique_st = extrair_clique_plotly(evt_status)
+        if clique_st:
+            st.session_state.filtro_dash_tipo = "status"
+            st.session_state.filtro_dash_valor = clique_st
 
     with g2:
         st.subheader("⚠️ Chamados por Prioridade")
@@ -509,7 +577,18 @@ if st.session_state.tela == "dashboard":
         df_prio.columns = ["Prioridade", "Quantidade"]
         fig_prio = px.bar(df_prio, x="Prioridade", y="Quantidade", text="Quantidade", color="Prioridade")
         fig_prio.update_layout(showlegend=False)
-        st.plotly_chart(aplicar_layout_plotly(fig_prio), use_container_width=True)
+        
+        evt_prio = st.plotly_chart(
+            aplicar_layout_plotly(fig_prio), 
+            use_container_width=True, 
+            on_select="rerun", 
+            selection_mode="points",
+            key="chart_prio"
+        )
+        clique_pr = extrair_clique_plotly(evt_prio)
+        if clique_pr:
+            st.session_state.filtro_dash_tipo = "prioridade"
+            st.session_state.filtro_dash_valor = clique_pr
 
     st.divider()
 
@@ -521,11 +600,116 @@ if st.session_state.tela == "dashboard":
         df_dep.columns = ["Departamento", "Quantidade"]
         fig_dep = px.bar(df_dep, y="Departamento", x="Quantidade", orientation="h", text="Quantidade")
         fig_dep.update_layout(yaxis=dict(autorange="reversed"))
-        st.plotly_chart(aplicar_layout_plotly(fig_dep), use_container_width=True)
+        
+        evt_dep = st.plotly_chart(
+            aplicar_layout_plotly(fig_dep), 
+            use_container_width=True, 
+            on_select="rerun", 
+            selection_mode="points",
+            key="chart_dep"
+        )
+        clique_dp = extrair_clique_plotly(evt_dep)
+        if clique_dp:
+            st.session_state.filtro_dash_tipo = "departamento"
+            st.session_state.filtro_dash_valor = clique_dp
 
     with g4:
         st.subheader("👨‍💻 Atendimentos por Técnico")
         df_tec = df["tecnico"].fillna("Não Atribuído").value_counts().reset_index()
         df_tec.columns = ["Técnico", "Quantidade"]
         fig_tec = px.bar(df_tec, x="Técnico", y="Quantidade", text="Quantidade")
-        st.plotly_chart(aplicar_layout_plotly(fig_tec), use_container_width=True)
+        
+        evt_tec = st.plotly_chart(
+            aplicar_layout_plotly(fig_tec), 
+            use_container_width=True, 
+            on_select="rerun", 
+            selection_mode="points",
+            key="chart_tec"
+        )
+        clique_tc = extrair_clique_plotly(evt_tec)
+        if clique_tc:
+            st.session_state.filtro_dash_tipo = "tecnico"
+            st.session_state.filtro_dash_valor = clique_tc
+
+    st.divider()
+
+    st.subheader("📍 Volume por Cidade / Unidade")
+    df_cid = df["cidade"].fillna("Não Informado").value_counts().reset_index()
+    df_cid.columns = ["Cidade", "Quantidade"]
+    fig_cid = px.bar(df_cid, x="Cidade", y="Quantidade", text="Quantidade", color="Cidade")
+    fig_cid.update_layout(showlegend=False)
+
+    evt_cid = st.plotly_chart(
+        aplicar_layout_plotly(fig_cid), 
+        use_container_width=True, 
+        on_select="rerun", 
+        selection_mode="points",
+        key="chart_cid"
+    )
+    clique_cd = extrair_clique_plotly(evt_cid)
+    if clique_cd:
+        st.session_state.filtro_dash_tipo = "cidade"
+        st.session_state.filtro_dash_valor = clique_cd
+
+
+    # ============================================================
+    # SEÇÃO DINÂMICA DE EXIBIÇÃO DOS CHAMADOS FILTRADOS
+    # ============================================================
+
+    st.divider()
+
+    df_filtrado_dash = df.copy()
+    tipo_filtro = st.session_state.filtro_dash_tipo
+    valor_filtro = st.session_state.filtro_dash_valor
+
+    if tipo_filtro and valor_filtro:
+        if tipo_filtro == "status_grupo":
+            s_series = df_filtrado_dash["status"].astype(str).str.strip().str.casefold()
+            if valor_filtro == "Concluídos":
+                df_filtrado_dash = df_filtrado_dash[s_series.isin(["concluído", "concluido", "finalizado", "fechado"])]
+            elif valor_filtro == "Em Andamento":
+                df_filtrado_dash = df_filtrado_dash[s_series.isin(["em andamento", "em atendimento"])]
+            elif valor_filtro == "Abertos":
+                df_filtrado_dash = df_filtrado_dash[s_series.isin(["pendente", "aberto"])]
+
+        elif tipo_filtro in ["status", "prioridade", "departamento", "tecnico", "cidade"]:
+            df_filtrado_dash = df_filtrado_dash[
+                df_filtrado_dash[tipo_filtro].astype(str).str.strip().str.casefold() == str(valor_filtro).strip().casefold()
+            ]
+
+        col_tit, col_btn = st.columns([8, 2])
+        with col_tit:
+            st.subheader(f"🎯 Chamados Filtrados: **{tipo_filtro.capitalize()} = {valor_filtro}** ({len(df_filtrado_dash)} encontrados)")
+        with col_btn:
+            st.button("❌ Limpar Filtro", on_click=limpar_filtro_dash, use_container_width=True)
+
+    else:
+        st.subheader(f"📋 Lista Completa de Chamados ({len(df_filtrado_dash)} chamados)")
+        st.caption("Clique em qualquer gráfico acima para filtrar esta lista instantaneamente.")
+
+    if df_filtrado_dash.empty:
+        st.warning("Nenhum chamado encontrado para este filtro.")
+    else:
+        for _, cham in df_filtrado_dash.iterrows():
+            t_id = str(cham["id_chamado"]).strip()
+            pct, status_txt = calcular_progresso(cham)
+            badge_html = get_status_badge(cham.get("status", ""))
+            bar_html = render_barra_progresso(pct, status_txt)
+
+            with st.container(border=True):
+                col1, col2 = st.columns([7, 3])
+                with col1:
+                    st.markdown(f"""
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
+                        <span style="font-size: 1.2rem; font-weight: 800;">🎫 #{t_id}</span>
+                        {badge_html}
+                    </div>
+                    <div style="font-size: 1rem; font-weight: 700;">{cham.get('titulo', 'Sem título')}</div>
+                    <div style="font-size: 0.85rem; color: {text_muted};">👤 {cham.get('solicitante', '-')} | 🏢 {cham.get('departamento', '-')} | 👨‍💻 {cham.get('tecnico', 'Sem técnico')}</div>
+                    """, unsafe_allow_html=True)
+                    st.markdown(bar_html, unsafe_allow_html=True)
+
+                with col2:
+                    st.write("")
+                    st.write("")
+                    st.button("👁️ Ver detalhes", key=f"btn_dash_list_{t_id}", on_click=abrir_ticket, args=(t_id,), use_container_width=True)
