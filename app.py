@@ -14,11 +14,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-
 # ============================================================
-# CARREGAMENTO E TRATAMENTO DE DADOS BLINDADO
+# CARREGAMENTO E TRATAMENTO DE DADOS
 # ============================================================
-
 
 @st.cache_data(ttl=60)
 def carregar_dados():
@@ -52,25 +50,17 @@ def carregar_dados():
             df_empty["data_aval_dt"] = pd.Series(dtype="datetime64[ns]")
             return df_empty
 
-        # 1. Normaliza os nomes das colunas (minúsculas e sem espaços nas pontas)
         df_raw.columns = [str(col).strip().lower() for col in df_raw.columns]
-
-        # 2. Remove colunas sem nome
         df_raw = df_raw.loc[:, df_raw.columns != ""]
-
-        # 3. Remove duplicadas de nomes de colunas mantendo a primeira
         df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
 
-        # 4. Garante que todas as colunas obrigatórias existam
         for col in colunas_obrigatorias:
             if col not in df_raw.columns:
                 df_raw[col] = ""
 
-        # 5. Tratamento básico de texto
         for col in colunas_obrigatorias:
             df_raw[col] = df_raw[col].fillna("").astype(str).str.strip()
 
-        # 6. Colunas auxiliares convertidas para métricas de Avaliação
         df_raw["nota_num"] = pd.to_numeric(
             df_raw["nota_atendimento"], errors="coerce"
         )
@@ -90,9 +80,8 @@ def carregar_dados():
 
 df = carregar_dados()
 
-
 # ============================================================
-# ESTADOS DA SESSÃO (SESSION STATE)
+# ESTADOS DA SESSÃO
 # ============================================================
 
 if "tela" not in st.session_state:
@@ -100,9 +89,6 @@ if "tela" not in st.session_state:
 
 if "ticket_aberto" not in st.session_state:
     st.session_state.ticket_aberto = None
-
-if "tema" not in st.session_state:
-    st.session_state.tema = "☀️ Claro"
 
 if "autenticado_admin" not in st.session_state:
     st.session_state.autenticado_admin = False
@@ -141,6 +127,49 @@ lista_status_opcoes = ["Todos os Status"] + sorted(
     key=str.casefold,
 )
 
+# ============================================================
+# ESTILIZAÇÃO CSS AJUSTADA (AZUL FERPAM #003399)
+# ============================================================
+
+AZUL_FERPAM = "#003399"
+AZUL_FERPAM_HOVER = "#002266"
+
+st.markdown(
+    f"""
+<style>
+    header[data-testid="stHeader"] {{ background-color: transparent !important; }}
+    #MainMenu {{ visibility: hidden; }}
+    footer {{ visibility: hidden; }}
+
+    /* Estilização limpa dos Botões Principais */
+    .stButton > button[data-testid="stBaseButton-primary"],
+    button[kind="primary"] {{
+        background-color: {AZUL_FERPAM} !important;
+        border: 1px solid {AZUL_FERPAM} !important;
+        color: #ffffff !important;
+        border-radius: 8px !important;
+        font-weight: 700 !important;
+    }}
+    .stButton > button[data-testid="stBaseButton-primary"] *,
+    button[kind="primary"] * {{ color: #ffffff !important; }}
+    
+    .stButton > button[data-testid="stBaseButton-primary"]:hover,
+    button[kind="primary"]:hover {{
+        background-color: {AZUL_FERPAM_HOVER} !important;
+        border-color: {AZUL_FERPAM_HOVER} !important;
+    }}
+
+    /* Estilização de Cartões/Containers */
+    div[data-testid="stMetric"] {{
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 12px !important;
+        padding: 16px !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }}
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
 # ============================================================
 # MENU LATERAL & AUTENTICAÇÃO
@@ -178,17 +207,6 @@ else:
 
 st.sidebar.divider()
 
-opcao_tema = st.sidebar.selectbox(
-    "🎨 Aparência / Tema",
-    ["☀️ Claro", "🌙 Escuro"],
-    index=0 if st.session_state.tema == "☀️ Claro" else 1,
-    key="select_tema",
-)
-st.session_state.tema = opcao_tema
-modo_escuro = st.session_state.tema == "🌙 Escuro"
-
-st.sidebar.divider()
-
 opcoes_menu = ["🔍 Consultar Chamados"]
 if st.session_state.autenticado_admin:
     opcoes_menu.append("📊 Dashboard de Indicadores")
@@ -210,127 +228,9 @@ elif (
 ):
     st.session_state.tela = "busca"
 
-
-# ============================================================
-# ESTILIZAÇÃO CSS CUSTOMIZADA (AZUL FERPAM #003399)
-# ============================================================
-
-AZUL_FERPAM = "#003399"
-AZUL_FERPAM_HOVER = "#002266"
-
-if modo_escuro:
-    bg_app = "#0b0f19"
-    bg_sidebar = "#111827"
-    bg_card = "#1e293b"
-    border_card = "#334155"
-    text_main = "#f8fafc"
-    text_muted = "#94a3b8"
-    plotly_template = "plotly_dark"
-    input_bg = "#1e293b"
-    btn_bg = "#1e293b"
-    btn_text = "#f8fafc"
-    btn_border = "#334155"
-else:
-    bg_app = "#f8fafc"
-    bg_sidebar = "#ffffff"
-    bg_card = "#ffffff"
-    border_card = "#cbd5e1"
-    text_main = "#0f172a"
-    text_muted = "#64748b"
-    plotly_template = "plotly_white"
-    input_bg = "#ffffff"
-    btn_bg = "#ffffff"
-    btn_text = "#0f172a"
-    btn_border = "#cbd5e1"
-
-st.markdown(
-    f"""
-<style>
-    header[data-testid="stHeader"] {{ background-color: transparent !important; }}
-    #MainMenu {{ visibility: hidden; }}
-    footer {{ visibility: hidden; }}
-
-    .stApp {{ background-color: {bg_app} !important; }}
-    section[data-testid="stSidebar"] {{ 
-        background-color: {bg_sidebar} !important; 
-        border-right: 1px solid {border_card}; 
-    }}
-
-    div[data-testid="stMetric"] {{
-        background-color: {bg_card} !important;
-        border: 1px solid {border_card} !important;
-        border-radius: 12px !important;
-        padding: 16px !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }}
-    div[data-testid="stMetricLabel"] label {{ color: {text_muted} !important; font-weight: 600 !important; }}
-    div[data-testid="stMetricValue"] div {{ color: {text_main} !important; font-weight: 800 !important; }}
-
-    div[data-testid="stVerticalBlock"] > div[style*="border"] {{
-        background-color: {bg_card} !important;
-        border: 1px solid {border_card} !important;
-        border-radius: 12px !important;
-        padding: 18px !important;
-    }}
-
-    div[data-baseweb="input"] > div,
-    div[data-baseweb="select"] > div,
-    input[type="text"],
-    input[type="password"] {{
-        background-color: {input_bg} !important;
-        color: {text_main} !important;
-        border-color: {border_card} !important;
-        border-radius: 8px !important;
-    }}
-    input {{ color: {text_main} !important; }}
-    input::placeholder {{ color: {text_muted} !important; }}
-
-    div[data-testid="stExpander"] {{
-        background-color: {bg_card} !important;
-        border: 1px solid {border_card} !important;
-        border-radius: 8px !important;
-    }}
-    div[data-testid="stExpander"] summary * {{
-        color: {text_main} !important;
-        font-weight: 600 !important;
-    }}
-
-    .stButton > button[data-testid="stBaseButton-primary"],
-    button[kind="primary"] {{
-        background-color: {AZUL_FERPAM} !important;
-        border: 1px solid {AZUL_FERPAM} !important;
-        border-radius: 8px !important;
-        font-weight: 700 !important;
-    }}
-    .stButton > button[data-testid="stBaseButton-primary"] *,
-    button[kind="primary"] * {{ color: #ffffff !important; }}
-    .stButton > button[data-testid="stBaseButton-primary"]:hover,
-    button[kind="primary"]:hover {{
-        background-color: {AZUL_FERPAM_HOVER} !important;
-        border-color: {AZUL_FERPAM_HOVER} !important;
-    }}
-
-    .stButton > button[data-testid="stBaseButton-secondary"] {{
-        background-color: {btn_bg} !important;
-        color: {btn_text} !important;
-        border: 1px solid {btn_border} !important;
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-    }}
-    .stButton > button[data-testid="stBaseButton-secondary"]:hover {{
-        border-color: {AZUL_FERPAM} !important;
-        color: {AZUL_FERPAM} !important;
-    }}
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-
 # ============================================================
 # UTILS & RENDERIZAÇÃO
 # ============================================================
-
 
 def calcular_progresso(chamado):
     status = str(chamado.get("status", "")).strip().casefold()
@@ -380,10 +280,10 @@ def render_barra_progresso(pct, texto_estagio):
     return f"""
     <div style="margin-top: 10px; margin-bottom: 6px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <span style="font-size: 0.83rem; font-weight: 600; color: {text_muted};">{texto_estagio}</span>
+            <span style="font-size: 0.83rem; font-weight: 600; color: #64748b;">{texto_estagio}</span>
             <span style="font-size: 0.85rem; font-weight: 800; color: {bar_color}; background-color: {bar_color}18; padding: 2px 10px; border-radius: 12px;">{pct}%</span>
         </div>
-        <div style="width: 100%; background-color: {border_card}; height: 10px; border-radius: 6px; overflow: hidden;">
+        <div style="width: 100%; background-color: #cbd5e1; height: 10px; border-radius: 6px; overflow: hidden;">
             <div style="width: {pct}%; background-color: {bar_color}; height: 100%; border-radius: 6px;"></div>
         </div>
     </div>
@@ -427,7 +327,6 @@ def processar_clique_grafico(event, tipo_filtro):
         st.session_state.filtro_dash_tipo = tipo_filtro
         st.session_state.filtro_dash_valor = val
         st.rerun()
-
 
 # ============================================================
 # TELA 1: DETALHES DO TICKET
@@ -498,7 +397,6 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
             else "Ainda não há atividades registradas para este chamado."
         )
 
-    # AVALIAÇÃO DO ATENDIMENTO
     nota = chamado.get("nota_atendimento", "")
     data_aval = str(chamado.get("data_avaliacao", "")).strip()
     coment_aval = str(chamado.get("comentario_avaliacao", "")).strip()
@@ -524,7 +422,6 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
                 st.write(f'"{coment_aval}"')
 
     st.stop()
-
 
 # ============================================================
 # TELA 2: BUSCA DE CHAMADOS
@@ -617,7 +514,7 @@ if st.session_state.tela == "busca":
                                 {badge_html}
                             </div>
                             <div style="font-size: 1rem; font-weight: 700; margin-bottom: 4px;">{cham.get('titulo', 'Sem título')}</div>
-                            <div style="font-size: 0.85rem; color: {text_muted};">👤 {cham.get('solicitante', '-')} | 🏢 {cham.get('departamento', '-')}</div>
+                            <div style="font-size: 0.85rem; color: #64748b;">👤 {cham.get('solicitante', '-')} | 🏢 {cham.get('departamento', '-')}</div>
                             """,
                                 unsafe_allow_html=True,
                             )
@@ -635,7 +532,6 @@ if st.session_state.tela == "busca":
                             )
 
     else:
-        # PAINEL ADMINISTRADOR
         st.write("🔧 **Painel Admin**: Filtragem global de chamados.")
 
         c1, c2, c3 = st.columns([1.5, 2, 1.5])
@@ -700,7 +596,7 @@ if st.session_state.tela == "busca":
                             {badge_html}
                         </div>
                         <div style="font-size: 1rem; font-weight: 700;">{cham.get('titulo', 'Sem título')}</div>
-                        <div style="font-size: 0.85rem; color: {text_muted};">👤 {cham.get('solicitante', '-')} | 🏢 {cham.get('departamento', '-')}</div>
+                        <div style="font-size: 0.85rem; color: #64748b;">👤 {cham.get('solicitante', '-')} | 🏢 {cham.get('departamento', '-')}</div>
                         """,
                             unsafe_allow_html=True,
                         )
@@ -717,7 +613,6 @@ if st.session_state.tela == "busca":
                             use_container_width=True,
                         )
 
-
 # ============================================================
 # TELA 3: DASHBOARD INTERATIVA & SATISFAÇÃO (CSAT)
 # ============================================================
@@ -732,29 +627,14 @@ if st.session_state.tela == "dashboard":
 
     st.title("📊 Dashboard & Indicadores de TI")
 
-    # Função auxiliar para manter o estilo dos gráficos Plotly coerente
     def aplicar_layout_plotly(fig):
         fig.update_layout(
-            template=plotly_template,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color=text_main, size=12),
-            legend=dict(font=dict(color=text_main)),
-            xaxis=dict(
-                title=dict(font=dict(color=text_main)),
-                tickfont=dict(color=text_main),
-                gridcolor=border_card,
-            ),
-            yaxis=dict(
-                title=dict(font=dict(color=text_main)),
-                tickfont=dict(color=text_main),
-                gridcolor=border_card,
-            ),
             margin=dict(t=30, b=20, l=20, r=20),
         )
         return fig
 
-    # CRIAÇÃO DAS ABAS DO DASHBOARD
     tab_op, tab_csat, tab_reviews = st.tabs(
         [
             "📊 Operação & Volumetria",
@@ -763,9 +643,6 @@ if st.session_state.tela == "dashboard":
         ]
     )
 
-    # ============================================================
-    # ABA 1: OPERAÇÃO & VOLUMETRIA
-    # ============================================================
     with tab_op:
         st.caption(
             "⚡ **Interativo**: Clique nos botões dos cartões ou nas fatias/barras dos gráficos para filtrar!"
@@ -977,7 +854,6 @@ if st.session_state.tela == "dashboard":
 
         st.divider()
 
-        # TABELA DE LISTAGEM FILTRADA DA OPERAÇÃO
         df_filtrado_dash = df.copy()
         tipo_filtro = st.session_state.filtro_dash_tipo
         valor_filtro = st.session_state.filtro_dash_valor
@@ -1052,7 +928,6 @@ if st.session_state.tela == "dashboard":
         if df_filtrado_dash.empty:
             st.warning("Nenhum chamado encontrado para este filtro.")
         else:
-            # Tabela resumida e interativa com Streamlit Dataframe
             cols_exibicao = [
                 "id_chamado",
                 "titulo",
@@ -1077,13 +952,9 @@ if st.session_state.tela == "dashboard":
                 },
             )
 
-    # ============================================================
-    # ABA 2: SATISFAÇÃO & NOTAS (CSAT)
-    # ============================================================
     with tab_csat:
         st.subheader("⭐ Indicadores de Satisfação do Cliente (CSAT)")
 
-        # Filtrar apenas chamados com nota numérica válida
         df_avaliados = df[df["nota_num"].notna() & (df["nota_num"] > 0)].copy()
 
         total_avaliacoes = len(df_avaliados)
@@ -1091,13 +962,11 @@ if st.session_state.tela == "dashboard":
             df_avaliados["nota_num"].mean() if total_avaliacoes > 0 else 0.0
         )
 
-        # CSAT %: Percentual de notas 4 e 5 (Satisfeitos/Muito Satisfeitos)
         satisfeitos = len(df_avaliados[df_avaliados["nota_num"] >= 4])
         csat_score = (
             (satisfeitos / total_avaliacoes * 100) if total_avaliacoes > 0 else 0.0
         )
 
-        # Taxa de Resposta em relação aos concluídos
         taxa_resposta = (
             (total_avaliacoes / concluidos * 100) if concluidos > 0 else 0.0
         )
@@ -1202,13 +1071,9 @@ if st.session_state.tela == "dashboard":
                 aplicar_layout_plotly(fig_dep_csat), use_container_width=True
             )
 
-    # ============================================================
-    # ABA 3: FEED DE REVIEWS & FEEDBACK
-    # ============================================================
     with tab_reviews:
         st.subheader("💬 Comentários e Feedbacks dos Solicitantes")
 
-        # Filtrar chamados que possuem comentário escrito
         df_feedbacks = df[
             df["comentario_avaliacao"].notna()
             & (df["comentario_avaliacao"].astype(str).str.strip() != "")
@@ -1248,7 +1113,6 @@ if st.session_state.tela == "dashboard":
                     "Filtrar por Técnico", options=tecnicos_review
                 )
 
-            # Aplicação dos filtros
             res_reviews = df_feedbacks.copy()
 
             if filtro_nota == "⭐ 5 Estrelas":
