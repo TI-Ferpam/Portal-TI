@@ -15,7 +15,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# CARREGAMENTO E TRATAMENTO DE DADOS (MELHORADO)
+# CARREGAMENTO E TRATAMENTO DE DADOS (CORRIGIDO PARA MULTI-ABAS)
 # ============================================================
 
 @st.cache_data(ttl=60)
@@ -39,7 +39,13 @@ def carregar_dados():
     try:
         data = carregar_chamados()
 
-        if isinstance(data, pd.DataFrame):
+        # Se o retorno for um dicionário de DataFrames (múltiplas abas)
+        if isinstance(data, dict):
+            if "chamados" in data:
+                df_raw = data["chamados"].copy()
+            else:
+                df_raw = list(data.values())[0].copy()
+        elif isinstance(data, pd.DataFrame):
             df_raw = data.copy()
         else:
             df_raw = pd.DataFrame(data)
@@ -50,7 +56,7 @@ def carregar_dados():
             df_empty["data_aval_dt"] = pd.Series(dtype="datetime64[ns]")
             return df_empty
 
-        # Normaliza os nomes das colunas
+        # Normaliza nomes de colunas
         df_raw.columns = [str(col).strip().lower() for col in df_raw.columns]
         df_raw = df_raw.loc[:, df_raw.columns != ""]
         df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
@@ -59,7 +65,7 @@ def carregar_dados():
             if col not in df_raw.columns:
                 df_raw[col] = ""
 
-        # Limpeza severa de strings (strip, replace nan/null)
+        # Limpeza de strings
         for col in colunas_obrigatorias:
             df_raw[col] = (
                 df_raw[col]
@@ -87,6 +93,27 @@ def carregar_dados():
 
 
 df = carregar_dados()
+
+# ============================================================
+# CLASSIFICAÇÃO DE STATUS EXPANDIDA
+# ============================================================
+
+def classificar_status_grupo(status_str):
+    if not status_str or str(status_str).strip() == "" or str(status_str).strip().lower() == "nan":
+        return "Abertos"
+        
+    s = str(status_str).strip().casefold()
+
+    # Mapeamento completo incluindo novos termos da planilha
+    concluidos_kw = ["concluído", "concluido", "finalizado", "fechado", "resolvido", "encerrado", "cancelado"]
+    andamento_kw = ["em andamento", "em atendimento", "atendendo", "execução", "execucao", "iniciado", "aguardando"]
+
+    if any(kw in s for kw in concluidos_kw):
+        return "Concluídos"
+    elif any(kw in s for kw in andamento_kw):
+        return "Em Andamento"
+    else:
+        return "Abertos"
 
 # ============================================================
 # ESTADOS DA SESSÃO
@@ -136,7 +163,7 @@ lista_status_opcoes = ["Todos os Status"] + sorted(
 )
 
 # ============================================================
-# ESTILIZAÇÃO CSS AJUSTADA (AZUL FERPAM #003399)
+# ESTILIZAÇÃO CSS
 # ============================================================
 
 AZUL_FERPAM = "#003399"
@@ -148,7 +175,6 @@ st.markdown(
     header[data-testid="stHeader"] {{ background-color: transparent !important; }}
     footer {{ visibility: hidden; }}
 
-    /* Estilização limpa dos Botões Principais */
     .stButton > button[data-testid="stBaseButton-primary"],
     button[kind="primary"] {{
         background-color: {AZUL_FERPAM} !important;
@@ -166,7 +192,6 @@ st.markdown(
         border-color: {AZUL_FERPAM_HOVER} !important;
     }}
 
-    /* Estilização de Cartões/Containers */
     div[data-testid="stMetric"] {{
         border: 1px solid #cbd5e1 !important;
         border-radius: 12px !important;
@@ -239,21 +264,6 @@ elif (
 # UTILS & RENDERIZAÇÃO
 # ============================================================
 
-def classificar_status_grupo(status_str):
-    s = str(status_str).strip().casefold()
-
-    # Mapeamento expandido de termos
-    concluidos_kw = ["concluído", "concluido", "finalizado", "fechado", "resolvido", "encerrado"]
-    andamento_kw = ["em andamento", "em atendimento", "atendendo", "execução", "execucao", "iniciado"]
-
-    if any(kw in s for kw in concluidos_kw):
-        return "Concluídos"
-    elif any(kw in s for kw in andamento_kw):
-        return "Em Andamento"
-    else:
-        return "Abertos"
-
-
 def calcular_progresso(chamado):
     grupo = classificar_status_grupo(chamado.get("status", ""))
     tecnico = str(chamado.get("tecnico", "")).strip().casefold()
@@ -264,7 +274,7 @@ def calcular_progresso(chamado):
     elif grupo == "Em Andamento":
         if atividade and atividade != "nan":
             return 80, "🔵 Em Atendimento (Atividade Registrada)"
-        return 60, "🔵 Em Atendimento pelo Técnico"
+        return 60, "🔵 Em Atendimento / Aguardando"
     elif tecnico and tecnico not in ["nan", "não atribuído", "nao atribuido", ""]:
         return 35, "🟡 Técnico Atribuído (Aguardando Início)"
     else:
@@ -569,10 +579,6 @@ if st.session_state.tela == "busca":
                 key="adm_status",
             )
 
-        btn_pesquisar_admin = st.button(
-            "🔍 Filtrar Base", type="primary", use_container_width=True
-        )
-
         res = df.copy()
 
         if input_ticket_admin.strip():
@@ -668,7 +674,6 @@ if st.session_state.tela == "dashboard":
 
         total_chamados = len(df)
         
-        # Classificação dinâmica por grupos
         df_dash = df.copy()
         df_dash["grupo_status"] = df_dash["status"].apply(classificar_status_grupo)
 
@@ -747,8 +752,12 @@ if st.session_state.tela == "dashboard":
 
         with g1:
             st.subheader("🍩 Distribuição por Status")
-            # Usa o status real ou 'Sem Status' se estiver vazio
-            s_counts = df["status"].replace("", "Não Especificado").value_counts().reset_index()
+            s_counts = (
+                df["status"]
+                .replace("", "Aberto / Sem Status")
+                .value_counts()
+                .reset_index()
+            )
             s_counts.columns = ["Status", "Quantidade"]
             fig_status = px.pie(
                 s_counts,
