@@ -41,18 +41,39 @@ def carregar_dados():
             df_empty["data_aval_dt"] = pd.Series(dtype="datetime64[ns]")
             return df_empty
 
-        # Normalização de colunas
+        # 1. Normalização dos nomes das colunas (remove espaços e passa pra minúsculo)
         df_raw.columns = [str(col).strip().lower() for col in df_raw.columns]
         df_raw = df_raw.loc[:, df_raw.columns != ""]
         df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
 
+        # 2. MAPEAMENTO DE NOMES DE COLUNAS COMUNS (De/Para)
+        mapeamento_colunas = {
+            "id": "id_chamado",
+            "ticket": "id_chamado",
+            "n_chamado": "id_chamado",
+            "numero": "id_chamado",
+            "num_chamado": "id_chamado",
+            "descricao": "ocorrencia",
+            "detalhes": "ocorrencia",
+            "solucao": "atividade_realizada",
+            "resolucao": "atividade_realizada",
+            "nota": "nota_atendimento",
+            "avaliacao": "nota_atendimento",
+        }
+        df_raw = df_raw.rename(columns=mapeamento_colunas)
+
+        # 3. Garantir que todas as colunas obrigatórias existam
         for col in colunas_obrigatorias:
             if col not in df_raw.columns:
                 df_raw[col] = ""
+            # Limpa valores nulos e converte para texto sem casas decimais extras (.0)
             df_raw[col] = df_raw[col].fillna("").astype(str).str.strip()
             df_raw[col] = df_raw[col].replace({"nan": "", "None": "", "null": "", "<NA>": ""})
+            df_raw[col] = df_raw[col].apply(lambda x: str(int(float(x))) if x.replace('.', '', 1).isdigit() and x.endswith('.0') else x)
 
-        df_raw = df_raw[df_raw.apply(lambda row: "".join(row.values) != "", axis=1)].copy()
+        # Remove linhas totalmente vazias ou sem ID
+        df_raw = df_raw[df_raw["id_chamado"] != ""].copy()
+
         df_raw["nota_num"] = pd.to_numeric(df_raw["nota_atendimento"], errors="coerce")
         df_raw["data_aval_dt"] = pd.to_datetime(df_raw["data_avaliacao"], errors="coerce", dayfirst=True)
         return df_raw
@@ -63,7 +84,6 @@ def carregar_dados():
         df_err["nota_num"] = pd.Series(dtype=float)
         df_err["data_aval_dt"] = pd.Series(dtype="datetime64[ns]")
         return df_err
-
 
 df = carregar_dados()
 
