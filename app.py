@@ -1,9 +1,7 @@
-import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
+import streamlit as st
 from services.sheets import carregar_chamados
-
 
 # ============================================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -13,7 +11,7 @@ st.set_page_config(
     page_title="Portal de Chamados TI",
     page_icon="🎫",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 
@@ -21,51 +19,65 @@ st.set_page_config(
 # CARREGAMENTO E TRATAMENTO DE DADOS BLINDADO
 # ============================================================
 
+
 @st.cache_data(ttl=60)
 def carregar_dados():
     colunas_obrigatorias = [
-        "id_chamado", "solicitante", "titulo", "ocorrencia", 
-        "status", "prioridade", "departamento", "tecnico", 
-        "cidade", "atividade_realizada", "nota_atendimento",
-        "data_avaliacao", "comentario_avaliacao"
+        "id_chamado",
+        "solicitante",
+        "titulo",
+        "ocorrencia",
+        "status",
+        "prioridade",
+        "departamento",
+        "tecnico",
+        "cidade",
+        "atividade_realizada",
+        "nota_atendimento",
+        "data_avaliacao",
+        "comentario_avaliacao",
     ]
-    
+
     try:
         data = carregar_chamados()
-        
+
         if isinstance(data, pd.DataFrame):
             df_raw = data.copy()
         else:
             df_raw = pd.DataFrame(data)
-        
+
         if df_raw.empty:
             df_empty = pd.DataFrame(columns=colunas_obrigatorias)
             df_empty["nota_num"] = pd.Series(dtype=float)
             df_empty["data_aval_dt"] = pd.Series(dtype="datetime64[ns]")
             return df_empty
-        
+
         # 1. Normaliza os nomes das colunas (minúsculas e sem espaços nas pontas)
         df_raw.columns = [str(col).strip().lower() for col in df_raw.columns]
-        
+
         # 2. Remove colunas sem nome
         df_raw = df_raw.loc[:, df_raw.columns != ""]
-        
+
         # 3. Remove duplicadas de nomes de colunas mantendo a primeira
         df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
-        
+
         # 4. Garante que todas as colunas obrigatórias existam
         for col in colunas_obrigatorias:
             if col not in df_raw.columns:
                 df_raw[col] = ""
-                
+
         # 5. Tratamento básico de texto
-        for col in df_raw.columns:
+        for col in colunas_obrigatorias:
             df_raw[col] = df_raw[col].fillna("").astype(str).str.strip()
-            
+
         # 6. Colunas auxiliares convertidas para métricas de Avaliação
-        df_raw["nota_num"] = pd.to_numeric(df_raw["nota_atendimento"], errors="coerce")
-        df_raw["data_aval_dt"] = pd.to_datetime(df_raw["data_avaliacao"], errors="coerce")
-            
+        df_raw["nota_num"] = pd.to_numeric(
+            df_raw["nota_atendimento"], errors="coerce"
+        )
+        df_raw["data_aval_dt"] = pd.to_datetime(
+            df_raw["data_avaliacao"], errors="coerce", dayfirst=True
+        )
+
         return df_raw
 
     except Exception as e:
@@ -74,6 +86,7 @@ def carregar_dados():
         df_err["nota_num"] = pd.Series(dtype=float)
         df_err["data_aval_dt"] = pd.Series(dtype="datetime64[ns]")
         return df_err
+
 
 df = carregar_dados()
 
@@ -117,13 +130,15 @@ def limpar_filtro_dash():
 
 
 lista_solicitantes_admin = sorted(
-    list(set([s for s in df["solicitante"].unique() if s and s.casefold() != "nan"])),
-    key=str.casefold
+    list(
+        set([s for s in df["solicitante"].unique() if s and s.casefold() != "nan"])
+    ),
+    key=str.casefold,
 )
 
 lista_status_opcoes = ["Todos os Status"] + sorted(
     list(set([s for s in df["status"].unique() if s and s.casefold() != "nan"])),
-    key=str.casefold
+    key=str.casefold,
 )
 
 
@@ -131,15 +146,21 @@ lista_status_opcoes = ["Todos os Status"] + sorted(
 # MENU LATERAL & AUTENTICAÇÃO
 # ============================================================
 
-st.sidebar.image("https://cdn-icons-png.flaticon.com/512/1063/1063376.png", width=50)
+st.sidebar.image(
+    "https://cdn-icons-png.flaticon.com/512/1063/1063376.png", width=50
+)
 st.sidebar.title("Portal TI")
 
 st.sidebar.markdown("### 🔐 Autenticação Admin")
 
 if not st.session_state.autenticado_admin:
-    with st.sidebar.expander("🔑 Áreas Restritas (Técnicos/Admin)", expanded=False):
+    with st.sidebar.expander(
+        "🔑 Áreas Restritas (Técnicos/Admin)", expanded=False
+    ):
         usuario_login = st.text_input("Usuário", key="login_usr")
-        senha_login = st.text_input("Senha", type="password", key="login_pwd")
+        senha_login = st.text_input(
+            "Senha", type="password", key="login_pwd"
+        )
         if st.button("Entrar", type="primary", use_container_width=True):
             if usuario_login.strip() == "admin" and senha_login == "admin":
                 st.session_state.autenticado_admin = True
@@ -161,10 +182,10 @@ opcao_tema = st.sidebar.selectbox(
     "🎨 Aparência / Tema",
     ["☀️ Claro", "🌙 Escuro"],
     index=0 if st.session_state.tema == "☀️ Claro" else 1,
-    key="select_tema"
+    key="select_tema",
 )
 st.session_state.tema = opcao_tema
-modo_escuro = (st.session_state.tema == "🌙 Escuro")
+modo_escuro = st.session_state.tema == "🌙 Escuro"
 
 st.sidebar.divider()
 
@@ -175,12 +196,18 @@ if st.session_state.autenticado_admin:
 opcao_menu = st.sidebar.radio(
     "📍 Navegação",
     opcoes_menu,
-    index=0 if st.session_state.tela in ["busca", "ticket"] else 1
+    index=0 if st.session_state.tela in ["busca", "ticket"] else 1,
 )
 
-if opcao_menu == "📊 Dashboard de Indicadores" and st.session_state.tela != "dashboard":
+if (
+    opcao_menu == "📊 Dashboard de Indicadores"
+    and st.session_state.tela != "dashboard"
+):
     st.session_state.tela = "dashboard"
-elif opcao_menu == "🔍 Consultar Chamados" and st.session_state.tela == "dashboard":
+elif (
+    opcao_menu == "🔍 Consultar Chamados"
+    and st.session_state.tela == "dashboard"
+):
     st.session_state.tela = "busca"
 
 
@@ -216,7 +243,8 @@ else:
     btn_text = "#0f172a"
     btn_border = "#cbd5e1"
 
-st.markdown(f"""
+st.markdown(
+    f"""
 <style>
     header[data-testid="stHeader"] {{ background-color: transparent !important; }}
     #MainMenu {{ visibility: hidden; }}
@@ -294,12 +322,15 @@ st.markdown(f"""
         color: {AZUL_FERPAM} !important;
     }}
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
 # ============================================================
 # UTILS & RENDERIZAÇÃO
 # ============================================================
+
 
 def calcular_progresso(chamado):
     status = str(chamado.get("status", "")).strip().casefold()
@@ -339,11 +370,13 @@ def get_status_badge(status):
         bg = "rgba(100, 116, 139, 0.12)"
         icon = "⚪"
 
-    return f'''<span style="background-color: {bg}; color: {color}; font-weight: 700; font-size: 0.82rem; padding: 4px 12px; border-radius: 20px; border: 1px solid {color}44; display: inline-flex; align-items: center; gap: 6px;">{icon} {status_clean}</span>'''
+    return f"""<span style="background-color: {bg}; color: {color}; font-weight: 700; font-size: 0.82rem; padding: 4px 12px; border-radius: 20px; border: 1px solid {color}44; display: inline-flex; align-items: center; gap: 6px;">{icon} {status_clean}</span>"""
 
 
 def render_barra_progresso(pct, texto_estagio):
-    bar_color = "#10b981" if pct == 100 else (AZUL_FERPAM if pct >= 50 else "#d97706")
+    bar_color = (
+        "#10b981" if pct == 100 else (AZUL_FERPAM if pct >= 50 else "#d97706")
+    )
     return f"""
     <div style="margin-top: 10px; margin-bottom: 6px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -387,7 +420,10 @@ def extrair_valor_clicado(event):
 
 def processar_clique_grafico(event, tipo_filtro):
     val = extrair_valor_clicado(event)
-    if val and (st.session_state.filtro_dash_tipo != tipo_filtro or st.session_state.filtro_dash_valor != val):
+    if val and (
+        st.session_state.filtro_dash_tipo != tipo_filtro
+        or st.session_state.filtro_dash_valor != val
+    ):
         st.session_state.filtro_dash_tipo = tipo_filtro
         st.session_state.filtro_dash_valor = val
         st.rerun()
@@ -414,14 +450,18 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
     st.caption(f"Solicitante: {chamado.get('solicitante', 'N/A')}")
 
     st.subheader("📌 Progresso da Resolução")
-    st.markdown(render_barra_progresso(percentual, etapa_nome), unsafe_allow_html=True)
+    st.markdown(
+        render_barra_progresso(percentual, etapa_nome), unsafe_allow_html=True
+    )
 
     st.divider()
 
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown("**Status Atual**")
-        st.markdown(get_status_badge(chamado["status"]), unsafe_allow_html=True)
+        st.markdown(
+            get_status_badge(chamado["status"]), unsafe_allow_html=True
+        )
         st.write("")
         st.markdown("**👤 Solicitante**")
         st.write(chamado.get("solicitante", "-"))
@@ -443,23 +483,33 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
         st.subheader("📋 Detalhes da Solicitação")
         st.markdown(f"**Título:** {chamado.get('titulo', '-')}")
         ocorrencia = str(chamado.get("ocorrencia", "")).strip()
-        st.info(ocorrencia if ocorrencia and ocorrencia.casefold() != "nan" else "Nenhuma descrição fornecida.")
+        st.info(
+            ocorrencia
+            if ocorrencia and ocorrencia.casefold() != "nan"
+            else "Nenhuma descrição fornecida."
+        )
 
     with col_b:
         st.subheader("🔧 Resolução / Atividade Realizada")
         atividade = str(chamado.get("atividade_realizada", "")).strip()
-        st.success(atividade if atividade and atividade.casefold() != "nan" else "Ainda não há atividades registradas para este chamado.")
+        st.success(
+            atividade
+            if atividade and atividade.casefold() != "nan"
+            else "Ainda não há atividades registradas para este chamado."
+        )
 
     # AVALIAÇÃO DO ATENDIMENTO
     nota = chamado.get("nota_atendimento", "")
     data_aval = str(chamado.get("data_avaliacao", "")).strip()
     coment_aval = str(chamado.get("comentario_avaliacao", "")).strip()
 
-    if (pd.notna(chamado.get("nota_num")) and chamado.get("nota_num") > 0) or (coment_aval and coment_aval.casefold() != "nan"):
+    if (
+        pd.notna(chamado.get("nota_num")) and chamado.get("nota_num") > 0
+    ) or (coment_aval and coment_aval.casefold() != "nan"):
         st.divider()
         st.subheader("⭐ Avaliação do Atendimento")
         col_eval1, col_eval2 = st.columns([1, 2])
-        
+
         with col_eval1:
             if pd.notna(chamado.get("nota_num")):
                 estrelas = render_estrelas(chamado["nota_num"])
@@ -467,11 +517,11 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
                     st.markdown(f"### {estrelas}")
             if data_aval and data_aval.casefold() != "nan":
                 st.caption(f"🗓️ Avaliado em: {data_aval}")
-                
+
         with col_eval2:
             if coment_aval and coment_aval.casefold() != "nan":
-                st.markdown(f"💬 **Comentário do Solicitante:**")
-                st.write(f"*\"{coment_aval}\"*")
+                st.markdown("💬 **Comentário do Solicitante:**")
+                st.write(f'"{coment_aval}"')
 
     st.stop()
 
@@ -485,34 +535,67 @@ if st.session_state.tela == "busca":
     st.title("🎫 Portal de Consulta de Chamados")
 
     if not st.session_state.autenticado_admin:
-        st.write("Digite o **Número do Chamado** ou o **Seu Nome** e escolha o status para consultar.")
-        
+        st.write(
+            "Digite o **Número do Chamado** ou o **Seu Nome** e escolha o status para consultar."
+        )
+
         c1, c2, c3 = st.columns([1.5, 2, 1.5])
         with c1:
-            input_ticket = st.text_input("Número do Chamado", placeholder="Ex.: 933")
+            input_ticket = st.text_input(
+                "Número do Chamado", placeholder="Ex.: 933"
+            )
         with c2:
-            input_nome = st.text_input("Seu Nome (Solicitante)", placeholder="Ex.: Carla")
+            input_nome = st.text_input(
+                "Seu Nome (Solicitante)", placeholder="Ex.: Carla"
+            )
         with c3:
-            input_status = st.selectbox("Status / Pendência", options=lista_status_opcoes, key="usr_status")
+            input_status = st.selectbox(
+                "Status / Pendência",
+                options=lista_status_opcoes,
+                key="usr_status",
+            )
 
-        btn_pesquisar = st.button("🔍 Pesquisar Chamado", type="primary", use_container_width=True)
+        btn_pesquisar = st.button(
+            "🔍 Pesquisar Chamado", type="primary", use_container_width=True
+        )
 
-        if btn_pesquisar or input_ticket.strip() or input_nome.strip() or input_status != "Todos os Status":
+        if (
+            btn_pesquisar
+            or input_ticket.strip()
+            or input_nome.strip()
+            or input_status != "Todos os Status"
+        ):
             res = df.copy()
 
             if input_ticket.strip():
-                res = res[res["id_chamado"].str.contains(input_ticket.strip(), case=False, na=False)]
-            
+                res = res[
+                    res["id_chamado"].str.contains(
+                        input_ticket.strip(), case=False, na=False
+                    )
+                ]
+
             if input_nome.strip():
-                res = res[res["solicitante"].str.contains(input_nome.strip(), case=False, na=False)]
+                res = res[
+                    res["solicitante"].str.contains(
+                        input_nome.strip(), case=False, na=False
+                    )
+                ]
 
             if input_status != "Todos os Status":
-                res = res[res["status"].str.casefold() == input_status.casefold()]
+                res = res[
+                    res["status"].str.casefold() == input_status.casefold()
+                ]
 
             st.divider()
 
-            if not input_ticket.strip() and not input_nome.strip() and input_status == "Todos os Status":
-                st.info("💡 Informe o número do ticket, seu nome ou escolha um status para iniciar.")
+            if (
+                not input_ticket.strip()
+                and not input_nome.strip()
+                and input_status == "Todos os Status"
+            ):
+                st.info(
+                    "💡 Informe o número do ticket, seu nome ou escolha um status para iniciar."
+                )
             elif res.empty:
                 st.warning("Nenhum chamado foi encontrado com esses critérios.")
             else:
@@ -527,20 +610,29 @@ if st.session_state.tela == "busca":
                     with st.container(border=True):
                         col1, col2 = st.columns([7, 3])
                         with col1:
-                            st.markdown(f"""
+                            st.markdown(
+                                f"""
                             <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
                                 <span style="font-size: 1.2rem; font-weight: 800;">🎫 #{t_id}</span>
                                 {badge_html}
                             </div>
                             <div style="font-size: 1rem; font-weight: 700; margin-bottom: 4px;">{cham.get('titulo', 'Sem título')}</div>
                             <div style="font-size: 0.85rem; color: {text_muted};">👤 {cham.get('solicitante', '-')} | 🏢 {cham.get('departamento', '-')}</div>
-                            """, unsafe_allow_html=True)
+                            """,
+                                unsafe_allow_html=True,
+                            )
                             st.markdown(bar_html, unsafe_allow_html=True)
 
                         with col2:
                             st.write("")
                             st.write("")
-                            st.button("👁️ Ver detalhes", key=f"btn_usr_{t_id}", on_click=abrir_ticket, args=(t_id,), use_container_width=True)
+                            st.button(
+                                "👁️ Ver detalhes",
+                                key=f"btn_usr_{t_id}",
+                                on_click=abrir_ticket,
+                                args=(t_id,),
+                                use_container_width=True,
+                            )
 
     else:
         # PAINEL ADMINISTRADOR
@@ -548,24 +640,43 @@ if st.session_state.tela == "busca":
 
         c1, c2, c3 = st.columns([1.5, 2, 1.5])
         with c1:
-            input_ticket_admin = st.text_input("Número do Ticket", placeholder="Ex.: 933")
+            input_ticket_admin = st.text_input(
+                "Número do Ticket", placeholder="Ex.: 933"
+            )
         with c2:
-            input_solic_admin = st.selectbox("Filtrar por Solicitante", options=["Todos"] + lista_solicitantes_admin)
+            input_solic_admin = st.selectbox(
+                "Filtrar por Solicitante",
+                options=["Todos"] + lista_solicitantes_admin,
+            )
         with c3:
-            input_status_admin = st.selectbox("Status / Pendência", options=lista_status_opcoes, key="adm_status")
+            input_status_admin = st.selectbox(
+                "Status / Pendência",
+                options=lista_status_opcoes,
+                key="adm_status",
+            )
 
-        btn_pesquisar_admin = st.button("🔍 Filtrar Base", type="primary", use_container_width=True)
+        btn_pesquisar_admin = st.button(
+            "🔍 Filtrar Base", type="primary", use_container_width=True
+        )
 
         res = df.copy()
 
         if input_ticket_admin.strip():
-            res = res[res["id_chamado"].str.contains(input_ticket_admin.strip(), case=False, na=False)]
+            res = res[
+                res["id_chamado"].str.contains(
+                    input_ticket_admin.strip(), case=False, na=False
+                )
+            ]
 
         if input_solic_admin != "Todos":
-            res = res[res["solicitante"].str.casefold() == input_solic_admin.casefold()]
+            res = res[
+                res["solicitante"].str.casefold() == input_solic_admin.casefold()
+            ]
 
         if input_status_admin != "Todos os Status":
-            res = res[res["status"].str.casefold() == input_status_admin.casefold()]
+            res = res[
+                res["status"].str.casefold() == input_status_admin.casefold()
+            ]
 
         st.divider()
 
@@ -582,20 +693,29 @@ if st.session_state.tela == "busca":
                 with st.container(border=True):
                     col1, col2 = st.columns([7, 3])
                     with col1:
-                        st.markdown(f"""
+                        st.markdown(
+                            f"""
                         <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
                             <span style="font-size: 1.2rem; font-weight: 800;">🎫 #{t_id}</span>
                             {badge_html}
                         </div>
                         <div style="font-size: 1rem; font-weight: 700;">{cham.get('titulo', 'Sem título')}</div>
                         <div style="font-size: 0.85rem; color: {text_muted};">👤 {cham.get('solicitante', '-')} | 🏢 {cham.get('departamento', '-')}</div>
-                        """, unsafe_allow_html=True)
+                        """,
+                            unsafe_allow_html=True,
+                        )
                         st.markdown(bar_html, unsafe_allow_html=True)
 
                     with col2:
                         st.write("")
                         st.write("")
-                        st.button("👁️ Ver detalhes", key=f"btn_adm_{t_id}", on_click=abrir_ticket, args=(t_id,), use_container_width=True)
+                        st.button(
+                            "👁️ Ver detalhes",
+                            key=f"btn_adm_{t_id}",
+                            on_click=abrir_ticket,
+                            args=(t_id,),
+                            use_container_width=True,
+                        )
 
 
 # ============================================================
@@ -605,7 +725,9 @@ if st.session_state.tela == "busca":
 if st.session_state.tela == "dashboard":
 
     if not st.session_state.autenticado_admin:
-        st.error("⛔ Acesso Negado! Faça login como admin no menu lateral para visualizar o Dashboard.")
+        st.error(
+            "⛔ Acesso Negado! Faça login como admin no menu lateral para visualizar o Dashboard."
+        )
         st.stop()
 
     st.title("📊 Dashboard & Indicadores de TI")
@@ -614,70 +736,125 @@ if st.session_state.tela == "dashboard":
     def aplicar_layout_plotly(fig):
         fig.update_layout(
             template=plotly_template,
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
             font=dict(color=text_main, size=12),
             legend=dict(font=dict(color=text_main)),
             xaxis=dict(
                 title=dict(font=dict(color=text_main)),
                 tickfont=dict(color=text_main),
-                gridcolor=border_card
+                gridcolor=border_card,
             ),
             yaxis=dict(
                 title=dict(font=dict(color=text_main)),
                 tickfont=dict(color=text_main),
-                gridcolor=border_card
+                gridcolor=border_card,
             ),
-            margin=dict(t=30, b=20, l=20, r=20)
+            margin=dict(t=30, b=20, l=20, r=20),
         )
         return fig
 
     # CRIAÇÃO DAS ABAS DO DASHBOARD
-    tab_op, tab_csat, tab_reviews = st.tabs([
-        "📊 Operação & Volumetria", 
-        "⭐ Satisfação & Notas (CSAT)", 
-        "💬 Feed de Reviews & Feedback"
-    ])
-
+    tab_op, tab_csat, tab_reviews = st.tabs(
+        [
+            "📊 Operação & Volumetria",
+            "⭐ Satisfação & Notas (CSAT)",
+            "💬 Feed de Reviews & Feedback",
+        ]
+    )
 
     # ============================================================
     # ABA 1: OPERAÇÃO & VOLUMETRIA
     # ============================================================
     with tab_op:
-        st.caption("⚡ **Interativo**: Clique nos botões dos cartões ou nas fatias/barras dos gráficos para filtrar!")
+        st.caption(
+            "⚡ **Interativo**: Clique nos botões dos cartões ou nas fatias/barras dos gráficos para filtrar!"
+        )
 
         total_chamados = len(df)
-        status_series = df["status"].astype(str).str.strip().str.casefold()
-        concluidos = len(df[status_series.isin(["concluído", "concluido", "finalizado", "fechado"])])
-        em_andamento = len(df[status_series.isin(["em andamento", "em atendimento"])])
-        pendentes = len(df[status_series.isin(["pendente", "aberto", "aguardando terceiros", "aguardando solicitante"])])
-        taxa_conclusao = (concluidos / total_chamados * 100) if total_chamados > 0 else 0
+        status_series = (
+            df["status"].astype(str).str.strip().str.casefold()
+        )
+        concluidos = len(
+            df[
+                status_series.isin(
+                    ["concluído", "concluido", "finalizado", "fechado"]
+                )
+            ]
+        )
+        em_andamento = len(
+            df[status_series.isin(["em andamento", "em atendimento"])]
+        )
+        pendentes = len(
+            df[
+                status_series.isin(
+                    [
+                        "pendente",
+                        "aberto",
+                        "aguardando terceiros",
+                        "aguardando solicitante",
+                    ]
+                )
+            ]
+        )
+        taxa_conclusao = (
+            (concluidos / total_chamados * 100) if total_chamados > 0 else 0
+        )
 
         m1, m2, m3, m4, m5 = st.columns(5)
 
         with m1:
             st.metric("Total Chamados", total_chamados)
-            if st.button("👁️ Ver Todos", key="btn_kpi_total", use_container_width=True):
+            if st.button(
+                "👁️ Ver Todos", key="btn_kpi_total", use_container_width=True
+            ):
                 limpar_filtro_dash()
                 st.rerun()
 
         with m2:
             st.metric("🟢 Concluídos", concluidos)
-            if st.button("🔍 Concluídos", key="btn_kpi_concluidos", use_container_width=True, type="primary" if st.session_state.filtro_dash_valor == "Concluídos" else "secondary"):
+            if st.button(
+                "🔍 Concluídos",
+                key="btn_kpi_concluidos",
+                use_container_width=True,
+                type=(
+                    "primary"
+                    if st.session_state.filtro_dash_valor == "Concluídos"
+                    else "secondary"
+                ),
+            ):
                 st.session_state.filtro_dash_tipo = "status_grupo"
                 st.session_state.filtro_dash_valor = "Concluídos"
                 st.rerun()
 
         with m3:
             st.metric("🔵 Em Andamento", em_andamento)
-            if st.button("🔍 Andamento", key="btn_kpi_andamento", use_container_width=True, type="primary" if st.session_state.filtro_dash_valor == "Em Andamento" else "secondary"):
+            if st.button(
+                "🔍 Andamento",
+                key="btn_kpi_andamento",
+                use_container_width=True,
+                type=(
+                    "primary"
+                    if st.session_state.filtro_dash_valor == "Em Andamento"
+                    else "secondary"
+                ),
+            ):
                 st.session_state.filtro_dash_tipo = "status_grupo"
                 st.session_state.filtro_dash_valor = "Em Andamento"
                 st.rerun()
 
         with m4:
             st.metric("🟡 Abertos", pendentes)
-            if st.button("🔍 Abertos", key="btn_kpi_abertos", use_container_width=True, type="primary" if st.session_state.filtro_dash_valor == "Abertos" else "secondary"):
+            if st.button(
+                "🔍 Abertos",
+                key="btn_kpi_abertos",
+                use_container_width=True,
+                type=(
+                    "primary"
+                    if st.session_state.filtro_dash_valor == "Abertos"
+                    else "secondary"
+                ),
+            ):
                 st.session_state.filtro_dash_tipo = "status_grupo"
                 st.session_state.filtro_dash_valor = "Abertos"
                 st.rerun()
@@ -693,30 +870,48 @@ if st.session_state.tela == "dashboard":
             st.subheader("🍩 Distribuição por Status")
             df_status = df["status"].value_counts().reset_index()
             df_status.columns = ["Status", "Quantidade"]
-            fig_status = px.pie(df_status, names="Status", values="Quantidade", hole=0.45, custom_data=["Status"])
-            
+            fig_status = px.pie(
+                df_status,
+                names="Status",
+                values="Quantidade",
+                hole=0.45,
+                custom_data=["Status"],
+            )
+
             evt_status = st.plotly_chart(
-                aplicar_layout_plotly(fig_status), 
-                use_container_width=True, 
-                on_select="rerun", 
+                aplicar_layout_plotly(fig_status),
+                use_container_width=True,
+                on_select="rerun",
                 selection_mode="points",
-                key="chart_status"
+                key="chart_status",
             )
             processar_clique_grafico(evt_status, "status")
 
         with g2:
             st.subheader("⚠️ Chamados por Prioridade")
-            df_prio = df["prioridade"].replace("", "Não Informado").value_counts().reset_index()
+            df_prio = (
+                df["prioridade"]
+                .replace("", "Não Informado")
+                .value_counts()
+                .reset_index()
+            )
             df_prio.columns = ["Prioridade", "Quantidade"]
-            fig_prio = px.bar(df_prio, x="Prioridade", y="Quantidade", text="Quantidade", color="Prioridade", custom_data=["Prioridade"])
+            fig_prio = px.bar(
+                df_prio,
+                x="Prioridade",
+                y="Quantidade",
+                text="Quantidade",
+                color="Prioridade",
+                custom_data=["Prioridade"],
+            )
             fig_prio.update_layout(showlegend=False)
-            
+
             evt_prio = st.plotly_chart(
-                aplicar_layout_plotly(fig_prio), 
-                use_container_width=True, 
-                on_select="rerun", 
+                aplicar_layout_plotly(fig_prio),
+                use_container_width=True,
+                on_select="rerun",
                 selection_mode="points",
-                key="chart_prio"
+                key="chart_prio",
             )
             processar_clique_grafico(evt_prio, "prioridade")
 
@@ -726,32 +921,57 @@ if st.session_state.tela == "dashboard":
 
         with g3:
             st.subheader("🏢 Demandas por Departamento")
-            df_dep = df["departamento"].replace("", "Outros").value_counts().head(10).reset_index()
+            df_dep = (
+                df["departamento"]
+                .replace("", "Outros")
+                .value_counts()
+                .head(10)
+                .reset_index()
+            )
             df_dep.columns = ["Departamento", "Quantidade"]
-            fig_dep = px.bar(df_dep, y="Departamento", x="Quantidade", orientation="h", text="Quantidade", custom_data=["Departamento"])
+            fig_dep = px.bar(
+                df_dep,
+                y="Departamento",
+                x="Quantidade",
+                orientation="h",
+                text="Quantidade",
+                custom_data=["Departamento"],
+            )
             fig_dep.update_layout(yaxis=dict(autorange="reversed"))
-            
+
             evt_dep = st.plotly_chart(
-                aplicar_layout_plotly(fig_dep), 
-                use_container_width=True, 
-                on_select="rerun", 
+                aplicar_layout_plotly(fig_dep),
+                use_container_width=True,
+                on_select="rerun",
                 selection_mode="points",
-                key="chart_dep"
+                key="chart_dep",
             )
             processar_clique_grafico(evt_dep, "departamento")
 
         with g4:
             st.subheader("👨‍💻 Atendimentos por Técnico")
-            df_tec = df["tecnico"].replace("", "Não Atribuído").value_counts().head(10).reset_index()
+            df_tec = (
+                df["tecnico"]
+                .replace("", "Não Atribuído")
+                .value_counts()
+                .head(10)
+                .reset_index()
+            )
             df_tec.columns = ["Técnico", "Quantidade"]
-            fig_tec = px.bar(df_tec, x="Técnico", y="Quantidade", text="Quantidade", custom_data=["Técnico"])
-            
+            fig_tec = px.bar(
+                df_tec,
+                x="Técnico",
+                y="Quantidade",
+                text="Quantidade",
+                custom_data=["Técnico"],
+            )
+
             evt_tec = st.plotly_chart(
-                aplicar_layout_plotly(fig_tec), 
-                use_container_width=True, 
-                on_select="rerun", 
+                aplicar_layout_plotly(fig_tec),
+                use_container_width=True,
+                on_select="rerun",
                 selection_mode="points",
-                key="chart_tec"
+                key="chart_tec",
             )
             processar_clique_grafico(evt_tec, "tecnico")
 
@@ -764,317 +984,318 @@ if st.session_state.tela == "dashboard":
 
         if tipo_filtro and valor_filtro:
             if tipo_filtro == "status_grupo":
-                s_series = df_filtrado_dash["status"].astype(str).str.strip().str.casefold()
+                s_series = (
+                    df_filtrado_dash["status"]
+                    .astype(str)
+                    .str.strip()
+                    .str.casefold()
+                )
                 if valor_filtro == "Concluídos":
-                    df_filtrado_dash = df_filtrado_dash[s_series.isin(["concluído", "concluido", "finalizado", "fechado"])]
+                    df_filtrado_dash = df_filtrado_dash[
+                        s_series.isin(
+                            ["concluído", "concluido", "finalizado", "fechado"]
+                        )
+                    ]
                 elif valor_filtro == "Em Andamento":
-                    df_filtrado_dash = df_filtrado_dash[s_series.isin(["em andamento", "em atendimento"])]
+                    df_filtrado_dash = df_filtrado_dash[
+                        s_series.isin(["em andamento", "em atendimento"])
+                    ]
                 elif valor_filtro == "Abertos":
-                    df_filtrado_dash = df_filtrado_dash[s_series.isin(["pendente", "aberto", "aguardando terceiros", "aguardando solicitante"])]
+                    df_filtrado_dash = df_filtrado_dash[
+                        s_series.isin(
+                            [
+                                "pendente",
+                                "aberto",
+                                "aguardando terceiros",
+                                "aguardando solicitante",
+                            ]
+                        )
+                    ]
 
-            elif tipo_filtro in ["status", "prioridade", "departamento", "tecnico", "cidade"]:
+            elif tipo_filtro in [
+                "status",
+                "prioridade",
+                "departamento",
+                "tecnico",
+                "cidade",
+            ]:
                 df_filtrado_dash = df_filtrado_dash[
-                    df_filtrado_dash[tipo_filtro].astype(str).str.strip().str.casefold() == str(valor_filtro).strip().casefold()
+                    df_filtrado_dash[tipo_filtro]
+                    .astype(str)
+                    .str.strip()
+                    .str.casefold()
+                    == str(valor_filtro).strip().casefold()
                 ]
 
             col_tit, col_btn = st.columns([8, 2])
             with col_tit:
-                st.subheader(f"🎯 Chamados Filtrados por **{tipo_filtro.capitalize()} = '{valor_filtro}'**")
-                st.caption(f"Mostrando {len(df_filtrado_dash)} de {len(df)} chamados totais.")
+                st.subheader(
+                    f"🎯 Chamados Filtrados por **{tipo_filtro.capitalize()} = '{valor_filtro}'**"
+                )
+                st.caption(
+                    f"Mostrando {len(df_filtrado_dash)} de {len(df)} chamados totais."
+                )
             with col_btn:
-                st.button("❌ Limpar Filtro", on_click=limpar_filtro_dash, type="primary", use_container_width=True, key="btn_clear_op")
+                st.button(
+                    "❌ Limpar Filtro",
+                    on_click=limpar_filtro_dash,
+                    type="primary",
+                    use_container_width=True,
+                    key="btn_clear_op",
+                )
 
         else:
-            st.subheader(f"📋 Lista Completa de Chamados ({len(df_filtrado_dash)} chamados)")
+            st.subheader(
+                f"📋 Lista Completa de Chamados ({len(df_filtrado_dash)} chamados)"
+            )
 
         if df_filtrado_dash.empty:
             st.warning("Nenhum chamado encontrado para este filtro.")
         else:
-            for _, cham in df_filtrado_dash.iterrows():
-                t_id = str(cham["id_chamado"]).strip()
-                pct, status_txt = calcular_progresso(cham)
-                badge_html = get_status_badge(cham.get("status", ""))
-                bar_html = render_barra_progresso(pct, status_txt)
-
-                with st.container(border=True):
-                    col1, col2 = st.columns([7, 3])
-                    with col1:
-                        st.markdown(f"""
-                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
-                            <span style="font-size: 1.2rem; font-weight: 800;">🎫 #{t_id}</span>
-                            {badge_html}
-                        </div>
-                        <div style="font-size: 1rem; font-weight: 700;">{cham.get('titulo', 'Sem título')}</div>
-                        <div style="font-size: 0.85rem; color: {text_muted};">👤 {cham.get('solicitante', '-')} | 🏢 {cham.get('departamento', '-')} | ⚠️ Prioridade: {cham.get('prioridade', '-')}</div>
-                        """, unsafe_allow_html=True)
-                        st.markdown(bar_html, unsafe_allow_html=True)
-
-                    with col2:
-                        st.write("")
-                        st.write("")
-                        st.button("👁️ Ver detalhes", key=f"btn_dash_list_{t_id}", on_click=abrir_ticket, args=(t_id,), use_container_width=True)
-
+            # Tabela resumida e interativa com Streamlit Dataframe
+            cols_exibicao = [
+                "id_chamado",
+                "titulo",
+                "solicitante",
+                "status",
+                "prioridade",
+                "departamento",
+                "tecnico",
+            ]
+            st.dataframe(
+                df_filtrado_dash[cols_exibicao],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "id_chamado": "Ticket",
+                    "titulo": "Título",
+                    "solicitante": "Solicitante",
+                    "status": "Status",
+                    "prioridade": "Prioridade",
+                    "departamento": "Departamento",
+                    "tecnico": "Técnico",
+                },
+            )
 
     # ============================================================
-    # ABA 2: SATISFAÇÃO & NOTAS (CSAT) - EXCLUSIVA
+    # ABA 2: SATISFAÇÃO & NOTAS (CSAT)
     # ============================================================
     with tab_csat:
-        st.subheader("⭐ Indicadores de Qualidade e Satisfação (CSAT)")
+        st.subheader("⭐ Indicadores de Satisfação do Cliente (CSAT)")
 
-        # Dataset filtrado apenas com notas válidas
-        df_avaliados = df.dropna(subset=["nota_num"]).copy()
-        df_avaliados["nota_num"] = df_avaliados["nota_num"].astype(float)
+        # Filtrar apenas chamados com nota numérica válida
+        df_avaliados = df[df["nota_num"].notna() & (df["nota_num"] > 0)].copy()
+
+        total_avaliacoes = len(df_avaliados)
+        media_geral = (
+            df_avaliados["nota_num"].mean() if total_avaliacoes > 0 else 0.0
+        )
+
+        # CSAT %: Percentual de notas 4 e 5 (Satisfeitos/Muito Satisfeitos)
+        satisfeitos = len(df_avaliados[df_avaliados["nota_num"] >= 4])
+        csat_score = (
+            (satisfeitos / total_avaliacoes * 100) if total_avaliacoes > 0 else 0.0
+        )
+
+        # Taxa de Resposta em relação aos concluídos
+        taxa_resposta = (
+            (total_avaliacoes / concluidos * 100) if concluidos > 0 else 0.0
+        )
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("Média CSAT", f"{media_geral:.2f} / 5.0")
+        with c2:
+            st.metric("Satisfação (CSAT %)", f"{csat_score:.1f}%")
+        with c3:
+            st.metric("Total Avaliados", total_avaliacoes)
+        with c4:
+            st.metric("Taxa de Resposta", f"{taxa_resposta:.1f}%")
+
+        st.divider()
 
         if df_avaliados.empty:
-            st.info("ℹ️ Ainda não há chamados com avaliações gravadas na planilha para exibir gráficos de satisfação.")
+            st.info("ℹ️ Nenhuma avaliação registrada na planilha até o momento.")
         else:
-            # DATAS PARA FILTRAGEM POR PERÍODO
-            data_maxima = df_avaliados["data_aval_dt"].max()
-            if pd.isna(data_maxima):
-                data_maxima = pd.Timestamp.now()
+            col_csat1, col_csat2 = st.columns(2)
 
-            eval_30d = df_avaliados[df_avaliados["data_aval_dt"] >= (data_maxima - pd.Timedelta(days=30))]
-            eval_7d = df_avaliados[df_avaliados["data_aval_dt"] >= (data_maxima - pd.Timedelta(days=7))]
-
-            media_geral = df_avaliados["nota_num"].mean()
-            media_30d = eval_30d["nota_num"].mean() if not eval_30d.empty else media_geral
-            media_7d = eval_7d["nota_num"].mean() if not eval_7d.empty else media_geral
-            total_avaliacoes = len(df_avaliados)
-
-            # CARDS DE MÉTRICAS DA NOTA
-            c_n1, c_n2, c_n3, c_n4 = st.columns(4)
-
-            with c_n1:
-                st.metric(
-                    "⭐ Média Geral (Todo o tempo)", 
-                    f"{media_geral:.2f} / 5.0",
-                    help="Média de todas as avaliações já recebidas no sistema"
+            with col_csat1:
+                st.subheader("📊 Distribuição das Notas (1 a 5)")
+                df_dist_notas = (
+                    df_avaliados["nota_num"]
+                    .astype(int)
+                    .value_counts()
+                    .reset_index()
                 )
-
-            with c_n2:
-                delta_30d = (media_30d - media_geral) if not eval_30d.empty else 0
-                st.metric(
-                    "🗓️ Média (Últimos 30 dias)", 
-                    f"{media_30d:.2f} / 5.0",
-                    delta=f"{delta_30d:+.2f} vs Geral" if abs(delta_30d) >= 0.01 else None,
-                    help="Média das notas recebidas nos últimos 30 dias"
+                df_dist_notas.columns = ["Nota", "Quantidade"]
+                df_dist_notas["Estrelas"] = df_dist_notas["Nota"].apply(
+                    lambda x: f"{'⭐' * x} ({x})"
                 )
-
-            with c_n3:
-                delta_7d = (media_7d - media_geral) if not eval_7d.empty else 0
-                st.metric(
-                    "📅 Média (Últimos 7 dias)", 
-                    f"{media_7d:.2f} / 5.0",
-                    delta=f"{delta_7d:+.2f} vs Geral" if abs(delta_7d) >= 0.01 else None,
-                    help="Média das notas recebidas nos últimos 7 dias"
-                )
-
-            with c_n4:
-                st.metric(
-                    "🗳️ Total de Avaliações", 
-                    f"{total_avaliacoes}",
-                    help="Quantidade total de respostas recebidas"
-                )
-
-            st.divider()
-
-            # GRÁFICOS DA ABA SATISFAÇÃO
-            csat_col1, csat_col2 = st.columns(2)
-
-            with csat_col1:
-                st.subheader("📊 Distribuição das Notas (Estrelas)")
-                # Garante que mostre de 1 a 5 estrelas mesmo se alguma nota tiver 0 contagens
-                dist_notas = df_avaliados["nota_num"].value_counts().reindex([5, 4, 3, 2, 1], fill_value=0).reset_index()
-                dist_notas.columns = ["Nota", "Quantidade"]
-                dist_notas["Estrelas"] = dist_notas["Nota"].apply(lambda n: f"{int(n)} ⭐")
-
-                # Cores padronizadas de satisfação (Verde para 5/4, Amarelo para 3, Vermelho/Laranja para 2/1)
-                cores_estrelas = {
-                    "5 ⭐": "#10b981",
-                    "4 ⭐": "#3b82f6",
-                    "3 ⭐": "#f59e0b",
-                    "2 ⭐": "#f97316",
-                    "1 ⭐": "#ef4444"
-                }
+                df_dist_notas = df_dist_notas.sort_values("Nota")
 
                 fig_dist = px.bar(
-                    dist_notas, 
-                    x="Estrelas", 
-                    y="Quantidade", 
+                    df_dist_notas,
+                    x="Estrelas",
+                    y="Quantidade",
                     text="Quantidade",
-                    color="Estrelas",
-                    color_discrete_map=cores_estrelas
+                    color="Nota",
+                    color_continuous_scale="RdYlGn",
                 )
-                fig_dist.update_layout(showlegend=False)
-                st.plotly_chart(aplicar_layout_plotly(fig_dist), use_container_width=True)
+                fig_dist.update_layout(coloraxis_showscale=False)
+                st.plotly_chart(
+                    aplicar_layout_plotly(fig_dist), use_container_width=True
+                )
 
-            with csat_col2:
-                st.subheader("📈 Evolução da Média de Nota por Mês")
-                df_tempo = df_avaliados.dropna(subset=["data_aval_dt"]).copy()
+            with col_csat2:
+                st.subheader("👨‍💻 Média CSAT por Técnico")
+                df_tec_csat = (
+                    df_avaliados.groupby("tecnico")["nota_num"]
+                    .agg(["mean", "count"])
+                    .reset_index()
+                )
+                df_tec_csat.columns = ["Técnico", "Média", "Qtd"]
+                df_tec_csat["Média_Arred"] = df_tec_csat["Média"].round(2)
+                df_tec_csat = df_tec_csat[
+                    df_tec_csat["Técnico"].str.strip() != ""
+                ].sort_values("Média", ascending=False)
 
-                if df_tempo.empty:
-                    st.info("Ainda não há datas de avaliação suficientes para montar a linha de tendência.")
-                else:
-                    df_tempo["mes_ano"] = df_tempo["data_aval_dt"].dt.strftime("%Y-%m")
-                    df_evolucao = df_tempo.groupby("mes_ano").agg(
-                        nota_media=("nota_num", "mean"),
-                        total=("nota_num", "count")
-                    ).reset_index()
-
-                    fig_evol = px.line(
-                        df_evolucao, 
-                        x="mes_ano", 
-                        y="nota_media", 
-                        markers=True,
-                        text=df_evolucao["nota_media"].round(2),
-                        title="Nota Média Mensal"
-                    )
-                    fig_evol.update_traces(line_color=AZUL_FERPAM, line_width=3, marker_size=8)
-                    fig_evol.update_yaxes(range=[1, 5.2])
-                    st.plotly_chart(aplicar_layout_plotly(fig_evol), use_container_width=True)
+                fig_tec_csat = px.bar(
+                    df_tec_csat.head(10),
+                    x="Técnico",
+                    y="Média",
+                    text="Média_Arred",
+                    color="Média",
+                    range_y=[0, 5],
+                    color_continuous_scale="RdYlGn",
+                )
+                fig_tec_csat.update_layout(coloraxis_showscale=False)
+                st.plotly_chart(
+                    aplicar_layout_plotly(fig_tec_csat),
+                    use_container_width=True,
+                )
 
             st.divider()
 
-            csat_col3, csat_col4 = st.columns(2)
+            st.subheader("🏢 Média CSAT por Departamento")
+            df_dep_csat = (
+                df_avaliados.groupby("departamento")["nota_num"]
+                .agg(["mean", "count"])
+                .reset_index()
+            )
+            df_dep_csat.columns = ["Departamento", "Média", "Qtd"]
+            df_dep_csat["Média_Arred"] = df_dep_csat["Média"].round(2)
+            df_dep_csat = df_dep_csat[
+                df_dep_csat["Departamento"].str.strip() != ""
+            ].sort_values("Média", ascending=False)
 
-            with csat_col3:
-                st.subheader("👨‍💻 Média de Satisfação por Técnico")
-                df_tec_csat = df_avaliados.groupby("tecnico").agg(
-                    nota_media=("nota_num", "mean"),
-                    total=("nota_num", "count")
-                ).reset_index()
-
-                df_tec_csat["nota_media"] = df_tec_csat["nota_media"].round(2)
-                df_tec_csat = df_tec_csat.sort_values("nota_media", ascending=False)
-
-                fig_tec_csat = px.bar(
-                    df_tec_csat, 
-                    x="tecnico", 
-                    y="nota_media", 
-                    text="nota_media",
-                    hover_data=["total"],
-                    color="nota_media",
-                    color_continuous_scale="RdYlGn"
-                )
-                fig_tec_csat.update_yaxes(range=[1, 5.2])
-                fig_tec_csat.update_layout(coloraxis_showscale=False)
-                st.plotly_chart(aplicar_layout_plotly(fig_tec_csat), use_container_width=True)
-
-            with csat_col4:
-                st.subheader("🏢 Satisfação por Departamento")
-                df_dep_csat = df_avaliados.groupby("departamento").agg(
-                    nota_media=("nota_num", "mean"),
-                    total=("nota_num", "count")
-                ).reset_index()
-
-                df_dep_csat["nota_media"] = df_dep_csat["nota_media"].round(2)
-                df_dep_csat = df_dep_csat.sort_values("nota_media", ascending=True)
-
-                fig_dep_csat = px.bar(
-                    df_dep_csat, 
-                    y="departamento", 
-                    x="nota_media", 
-                    orientation="h",
-                    text="nota_media",
-                    hover_data=["total"],
-                    color="nota_media",
-                    color_continuous_scale="RdYlGn"
-                )
-                fig_dep_csat.update_xaxes(range=[1, 5.2])
-                fig_dep_csat.update_layout(coloraxis_showscale=False)
-                st.plotly_chart(aplicar_layout_plotly(fig_dep_csat), use_container_width=True)
-
+            fig_dep_csat = px.bar(
+                df_dep_csat,
+                x="Departamento",
+                y="Média",
+                text="Média_Arred",
+                color="Média",
+                range_y=[0, 5],
+                color_continuous_scale="RdYlGn",
+            )
+            fig_dep_csat.update_layout(coloraxis_showscale=False)
+            st.plotly_chart(
+                aplicar_layout_plotly(fig_dep_csat), use_container_width=True
+            )
 
     # ============================================================
     # ABA 3: FEED DE REVIEWS & FEEDBACK
     # ============================================================
     with tab_reviews:
-        st.subheader("💬 Feed de Avaliações e Comentários do Usuário")
-        st.caption("Acompanhe o que os solicitantes estão dizendo sobre o atendimento prestado.")
+        st.subheader("💬 Comentários e Feedbacks dos Solicitantes")
 
-        # Filtra chamados que possuem nota OU comentário preenchido
-        df_feed = df[
-            (pd.notna(df["nota_num"])) | 
-            (df["comentario_avaliacao"].str.lower().isin(["", "nan", "none", "null"]) == False)
+        # Filtrar chamados que possuem comentário escrito
+        df_feedbacks = df[
+            df["comentario_avaliacao"].notna()
+            & (df["comentario_avaliacao"].astype(str).str.strip() != "")
+            & (
+                df["comentario_avaliacao"].astype(str).str.strip().str.lower()
+                != "nan"
+            )
         ].copy()
 
-        if df_feed.empty:
-            st.info("ℹ️ Nenhuma avaliação ou comentário foi registrado ainda.")
+        if df_feedbacks.empty:
+            st.info("ℹ️ Nenhum comentário registrado até o momento.")
         else:
-            # FILTROS DA ABA FEED
-            f_col1, f_col2, f_col3 = st.columns([2, 2, 3])
-
-            with f_col1:
-                filtro_estrela = st.selectbox(
-                    "Filtrar por Estrelas",
-                    ["Todas as Notas", "5 ⭐ (Excelente)", "4 ⭐ (Bom)", "3 ⭐ (Regular)", "2 ⭐ (Ruim)", "1 ⭐ (Péssimo)"]
+            col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                filtro_nota = st.selectbox(
+                    "Filtrar por Estrelas/Nota",
+                    options=[
+                        "Todas as Notas",
+                        "⭐ 5 Estrelas",
+                        "⭐ 4 Estrelas",
+                        "⭐ 3 Estrelas ou menos",
+                    ],
+                )
+            with col_f2:
+                tecnicos_review = ["Todos os Técnicos"] + sorted(
+                    list(
+                        set(
+                            [
+                                t
+                                for t in df_feedbacks["tecnico"].unique()
+                                if t and t.casefold() != "nan"
+                            ]
+                        )
+                    )
+                )
+                filtro_tec_rev = st.selectbox(
+                    "Filtrar por Técnico", options=tecnicos_review
                 )
 
-            with f_col2:
-                apenas_comentarios = st.checkbox("Apenas com Comentário de Texto", value=False)
+            # Aplicação dos filtros
+            res_reviews = df_feedbacks.copy()
 
-            with f_col3:
-                busca_texto = st.text_input("🔍 Buscar no comentário...", placeholder="Ex.: rápido, atencioso, demorou...")
+            if filtro_nota == "⭐ 5 Estrelas":
+                res_reviews = res_reviews[res_reviews["nota_num"] == 5]
+            elif filtro_nota == "⭐ 4 Estrelas":
+                res_reviews = res_reviews[res_reviews["nota_num"] == 4]
+            elif filtro_nota == "⭐ 3 Estrelas ou menos":
+                res_reviews = res_reviews[res_reviews["nota_num"] <= 3]
 
-            # Aplicação dos filtros no Feed
-            if filtro_estrela != "Todas as Notas":
-                num_alvo = int(filtro_estrela[0])
-                df_feed = df_feed[df_feed["nota_num"] == num_alvo]
-
-            if apenas_comentarios:
-                df_feed = df_feed[~df_feed["comentario_avaliacao"].str.lower().isin(["", "nan", "none", "null"])]
-
-            if busca_texto.strip():
-                df_feed = df_feed[df_feed["comentario_avaliacao"].str.contains(busca_texto.strip(), case=False, na=False)]
+            if filtro_tec_rev != "Todos os Técnicos":
+                res_reviews = res_reviews[
+                    res_reviews["tecnico"].str.casefold()
+                    == filtro_tec_rev.casefold()
+                ]
 
             st.divider()
+            st.caption(
+                f"Exibindo {len(res_reviews)} comentário(s) encontrado(s):"
+            )
 
-            if df_feed.empty:
-                st.warning("Nenhum comentário/review encontrado para os filtros selecionados.")
-            else:
-                st.caption(f"Exibindo **{len(df_feed)}** review(s):")
+            for _, rev in res_reviews.iterrows():
+                r_id = str(rev["id_chamado"]).strip()
+                r_solic = rev.get("solicitante", "Anônimo")
+                r_dep = rev.get("departamento", "N/A")
+                r_tec = rev.get("tecnico", "N/A")
+                r_coment = rev.get("comentario_avaliacao", "")
+                r_nota = rev.get("nota_num")
+                r_data = str(rev.get("data_avaliacao", "")).strip()
 
-                # Renderiza cada review em um card moderno
-                for _, r in df_feed.iterrows():
-                    t_id = str(r["id_chamado"]).strip()
-                    solic = r.get("solicitante", "Solicitante não informado")
-                    tec = r.get("tecnico", "Técnico não atribuído")
-                    dt_aval = str(r.get("data_avaliacao", "")).strip()
-                    coment = str(r.get("comentario_avaliacao", "")).strip()
-                    nota_val = r.get("nota_num")
+                estrelas_str = (
+                    render_estrelas(r_nota) if pd.notna(r_nota) else "Sem nota"
+                )
 
-                    estrelas_str = render_estrelas(nota_val) if pd.notna(nota_val) else "Sem nota definida"
-
-                    # Definir cor de borda do box de comentário com base na nota
-                    if pd.notna(nota_val) and nota_val >= 4:
-                        box_type = "success"
-                    elif pd.notna(nota_val) and nota_val == 3:
-                        box_type = "warning"
-                    elif pd.notna(nota_val) and nota_val <= 2:
-                        box_type = "error"
-                    else:
-                        box_type = "info"
-
-                    with st.container(border=True):
-                        c_top1, c_top2 = st.columns([7, 3])
-
-                        with c_top1:
-                            st.markdown(f"### {estrelas_str}")
-                            st.markdown(f"**👤 {solic}** • *Técnico:* **{tec}**")
-                            if dt_aval and dt_aval.casefold() != "nan":
-                                st.caption(f"🗓️ Data da Avaliação: {dt_aval}")
-
-                        with c_top2:
-                            st.button(f"👁️ Abrir #{t_id}", key=f"btn_feed_{t_id}", on_click=abrir_ticket, args=(t_id,), use_container_width=True)
-
-                        if coment and coment.casefold() not in ["nan", "", "none", "null"]:
-                            if box_type == "success":
-                                st.success(f"💬 *\"{coment}\"*")
-                            elif box_type == "warning":
-                                st.warning(f"💬 *\"{coment}\"*")
-                            elif box_type == "error":
-                                st.error(f"💬 *\"{coment}\"*")
-                            else:
-                                st.info(f"💬 *\"{coment}\"*")
-                        else:
-                            st.caption("*(Avaliação enviada sem comentário por texto)*")
+                with st.container(border=True):
+                    c_left, c_right = st.columns([8, 2])
+                    with c_left:
+                        st.markdown(
+                            f"**{estrelas_str}** — *\"{r_coment}\"*"
+                        )
+                        st.caption(
+                            f"👤 **{r_solic}** ({r_dep}) | 👨‍💻 Técnico: **{r_tec}** | 🗓️ {r_data if r_data and r_data.casefold() != 'nan' else 'Data não descrita'}"
+                        )
+                    with c_right:
+                        st.button(
+                            "👁️ Ver Ticket",
+                            key=f"btn_rev_{r_id}",
+                            on_click=abrir_ticket,
+                            args=(r_id,),
+                            use_container_width=True,
+                        )
