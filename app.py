@@ -916,64 +916,46 @@ if st.session_state.tela == "dashboard":
                 "id_chamado",
                 "titulo",
                 "solicitante",
-                "status",
-                "prioridade",
                 "departamento",
                 "tecnico",
+                "status",
+                "prioridade"
             ]
             st.dataframe(
                 df_filtrado_dash[cols_exibicao],
                 use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "id_chamado": "Ticket",
-                    "titulo": "Título",
-                    "solicitante": "Solicitante",
-                    "status": "Status",
-                    "prioridade": "Prioridade",
-                    "departamento": "Departamento",
-                    "tecnico": "Técnico",
-                },
+                hide_index=True
             )
 
+    # ----------------------------------------------------
+    # TAB 2: CSAT / SATISFAÇÃO
+    # ----------------------------------------------------
     with tab_csat:
-        st.subheader("⭐ Indicadores de Satisfação do Cliente (CSAT)")
-
         df_avaliados = df[df["nota_num"].notna() & (df["nota_num"] > 0)].copy()
 
-        total_avaliacoes = len(df_avaliados)
-        media_geral = (
-            df_avaliados["nota_num"].mean() if total_avaliacoes > 0 else 0.0
-        )
-
-        satisfeitos = len(df_avaliados[df_avaliados["nota_num"] >= 4])
-        csat_score = (
-            (satisfeitos / total_avaliacoes * 100) if total_avaliacoes > 0 else 0.0
-        )
-
-        taxa_resposta = (
-            (total_avaliacoes / concluidos * 100) if concluidos > 0 else 0.0
-        )
-
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.metric("Média CSAT", f"{media_geral:.2f} / 5.0")
-        with c2:
-            st.metric("Satisfação (CSAT %)", f"{csat_score:.1f}%")
-        with c3:
-            st.metric("Total Avaliados", total_avaliacoes)
-        with c4:
-            st.metric("Taxa de Resposta", f"{taxa_resposta:.1f}%")
-
-        st.divider()
-
         if df_avaliados.empty:
-            st.info("ℹ️ Nenhuma avaliação registrada na planilha até o momento.")
+            st.info("Ainda não existem avaliações/notas registradas na planilha.")
         else:
+            media_csat = df_avaliados["nota_num"].mean()
+            total_avaliacoes = len(df_avaliados)
+            pct_satisfeitos = (
+                len(df_avaliados[df_avaliados["nota_num"] >= 4]) / total_avaliacoes
+            ) * 100
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Média CSAT", f"{media_csat:.2f} / 5.0")
+            with c2:
+                st.metric("Total de Avaliações", total_avaliacoes)
+            with c3:
+                st.metric("% Satisfeitos (Notas 4 e 5)", f"{pct_satisfeitos:.1f}%")
+
+            st.divider()
+
             col_csat1, col_csat2 = st.columns(2)
 
             with col_csat1:
-                st.subheader("📊 Distribuição das Notas (1 a 5)")
+                st.subheader("⭐ Distribuição de Notas")
                 df_dist_notas = (
                     df_avaliados["nota_num"]
                     .astype(int)
@@ -981,169 +963,68 @@ if st.session_state.tela == "dashboard":
                     .reset_index()
                 )
                 df_dist_notas.columns = ["Nota", "Quantidade"]
-                df_dist_notas["Estrelas"] = df_dist_notas["Nota"].apply(
-                    lambda x: f"{'⭐' * x} ({x})"
-                )
-                df_dist_notas = df_dist_notas.sort_values("Nota")
+                df_dist_notas = df_dist_notas.sort_values(by="Nota")
 
-                fig_dist = px.bar(
+                fig_notas = px.bar(
                     df_dist_notas,
-                    x="Estrelas",
+                    x="Nota",
                     y="Quantidade",
                     text="Quantidade",
                     color="Nota",
                     color_continuous_scale="RdYlGn",
                 )
-                fig_dist.update_layout(coloraxis_showscale=False)
                 st.plotly_chart(
-                    aplicar_layout_plotly(fig_dist), use_container_width=True
+                    aplicar_layout_plotly(fig_notas),
+                    use_container_width=True,
                 )
 
             with col_csat2:
-                st.subheader("👨‍💻 Média CSAT por Técnico")
+                st.subheader("👨‍💻 Média por Técnico")
                 df_tec_csat = (
                     df_avaliados.groupby("tecnico")["nota_num"]
                     .agg(["mean", "count"])
                     .reset_index()
                 )
-                df_tec_csat.columns = ["Técnico", "Média", "Qtd"]
-                df_tec_csat["Média_Arred"] = df_tec_csat["Média"].round(2)
-                df_tec_csat = df_tec_csat[
-                    df_tec_csat["Técnico"].str.strip() != ""
-                ].sort_values("Média", ascending=False)
+                df_tec_csat.columns = ["Técnico", "Média", "Avaliações"]
+                df_tec_csat = df_tec_csat[df_tec_csat["Técnico"] != ""].sort_values(
+                    by="Média", ascending=False
+                )
 
                 fig_tec_csat = px.bar(
-                    df_tec_csat.head(10),
+                    df_tec_csat,
                     x="Técnico",
                     y="Média",
-                    text="Média_Arred",
-                    color="Média",
-                    range_y=[0, 5],
-                    color_continuous_scale="RdYlGn",
+                    text="Média",
+                    hover_data=["Avaliações"],
                 )
-                fig_tec_csat.update_layout(coloraxis_showscale=False)
+                fig_tec_csat.update_traces(texttemplate="%{text:.2f}")
                 st.plotly_chart(
                     aplicar_layout_plotly(fig_tec_csat),
                     use_container_width=True,
                 )
 
-            st.divider()
-
-            st.subheader("🏢 Média CSAT por Departamento")
-            df_dep_csat = (
-                df_avaliados.groupby("departamento")["nota_num"]
-                .agg(["mean", "count"])
-                .reset_index()
-            )
-            df_dep_csat.columns = ["Departamento", "Média", "Qtd"]
-            df_dep_csat["Média_Arred"] = df_dep_csat["Média"].round(2)
-            df_dep_csat = df_dep_csat[
-                df_dep_csat["Departamento"].str.strip() != ""
-            ].sort_values("Média", ascending=False)
-
-            fig_dep_csat = px.bar(
-                df_dep_csat,
-                x="Departamento",
-                y="Média",
-                text="Média_Arred",
-                color="Média",
-                range_y=[0, 5],
-                color_continuous_scale="RdYlGn",
-            )
-            fig_dep_csat.update_layout(coloraxis_showscale=False)
-            st.plotly_chart(
-                aplicar_layout_plotly(fig_dep_csat), use_container_width=True
-            )
-
+    # ----------------------------------------------------
+    # TAB 3: FEED DE REVIEWS
+    # ----------------------------------------------------
     with tab_reviews:
-        st.subheader("💬 Comentários e Feedbacks dos Solicitantes")
-
-        df_feedbacks = df[
-            df["comentario_avaliacao"].notna()
-            & (df["comentario_avaliacao"].astype(str).str.strip() != "")
-            & (
-                df["comentario_avaliacao"].astype(str).str.strip().str.lower()
-                != "nan"
-            )
+        df_comments = df[
+            df["comentario_avaliacao"].fillna("").astype(str).str.strip() != ""
         ].copy()
 
-        if df_feedbacks.empty:
-            st.info("ℹ️ Nenhum comentário registrado até o momento.")
+        if df_comments.empty:
+            st.info("Nenhum comentário/feedback foi registrado até o momento.")
         else:
-            col_f1, col_f2 = st.columns(2)
-            with col_f1:
-                filtro_nota = st.selectbox(
-                    "Filtrar por Estrelas/Nota",
-                    options=[
-                        "Todas as Notas",
-                        "⭐ 5 Estrelas",
-                        "⭐ 4 Estrelas",
-                        "⭐ 3 Estrelas ou menos",
-                    ],
-                )
-            with col_f2:
-                tecnicos_review = ["Todos os Técnicos"] + sorted(
-                    list(
-                        set(
-                            [
-                                t
-                                for t in df_feedbacks["tecnico"].unique()
-                                if t and t.casefold() != "nan"
-                            ]
-                        )
-                    )
-                )
-                filtro_tec_rev = st.selectbox(
-                    "Filtrar por Técnico", options=tecnicos_review
-                )
-
-            res_reviews = df_feedbacks.copy()
-
-            if filtro_nota == "⭐ 5 Estrelas":
-                res_reviews = res_reviews[res_reviews["nota_num"] == 5]
-            elif filtro_nota == "⭐ 4 Estrelas":
-                res_reviews = res_reviews[res_reviews["nota_num"] == 4]
-            elif filtro_nota == "⭐ 3 Estrelas ou menos":
-                res_reviews = res_reviews[res_reviews["nota_num"] <= 3]
-
-            if filtro_tec_rev != "Todos os Técnicos":
-                res_reviews = res_reviews[
-                    res_reviews["tecnico"].str.casefold()
-                    == filtro_tec_rev.casefold()
-                ]
-
-            st.divider()
-            st.caption(
-                f"Exibindo {len(res_reviews)} comentário(s) encontrado(s):"
-            )
-
-            for idx, rev in res_reviews.reset_index(drop=True).iterrows():
-                r_id = str(rev["id_chamado"]).strip()
-                r_solic = rev.get("solicitante", "Anônimo")
-                r_dep = rev.get("departamento", "N/A")
-                r_tec = rev.get("tecnico", "N/A")
-                r_coment = rev.get("comentario_avaliacao", "")
-                r_nota = rev.get("nota_num")
-                r_data = str(rev.get("data_avaliacao", "")).strip()
-
-                estrelas_str = (
-                    render_estrelas(r_nota) if pd.notna(r_nota) else "Sem nota"
-                )
-
+            st.subheader(f"💬 Comentários dos Usuários ({len(df_comments)})")
+            for idx, row in df_comments.iterrows():
                 with st.container(border=True):
-                    c_left, c_right = st.columns([8, 2])
-                    with c_left:
-                        st.markdown(
-                            f"**{estrelas_str}** — *\"{r_coment}\"*"
-                        )
-                        st.caption(
-                            f"👤 **{r_solic}** ({r_dep}) | 👨‍💻 Técnico: **{r_tec}** | 🗓️ {r_data if r_data and r_data.casefold() != 'nan' else 'Data não descrita'}"
-                        )
-                    with c_right:
-                        st.button(
-                            "👁️ Ver Ticket",
-                            key=f"btn_rev_{r_id}_{idx}",
-                            on_click=abrir_ticket,
-                            args=(r_id,),
-                            use_container_width=True,
-                        )
+                    col_r1, col_r2 = st.columns([8, 2])
+                    with col_r1:
+                        st.markdown(f"**Ticket #{row['id_chamado']}** - {row['solicitante']} ({row['departamento']})")
+                        st.write(f'"{row["comentario_avaliacao"]}"')
+                        if row['data_avaliacao']:
+                            st.caption(f"🗓️ {row['data_avaliacao']}")
+                    with col_r2:
+                        estrelas = render_estrelas(row['nota_num'])
+                        if estrelas:
+                            st.markdown(f"**{estrelas}**")
+                        st.caption(f"Técnico: {row['tecnico']}")
