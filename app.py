@@ -56,16 +56,45 @@ def carregar_dados():
             df_empty["data_aval_dt"] = pd.Series(dtype="datetime64[ns]")
             return df_empty
 
-        # Normaliza nomes de colunas
+        # 1. Normaliza cabeçalhos do Google Sheets (remove espaços nas pontas e minúsculas)
         df_raw.columns = [str(col).strip().lower() for col in df_raw.columns]
         df_raw = df_raw.loc[:, df_raw.columns != ""]
         df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
 
+        # 2. Mapeamento de possíveis variações de nomes nas colunas
+        rename_map = {}
+        for c in df_raw.columns:
+            if "status" in c or "situa" in c:
+                rename_map[c] = "status"
+            elif "priorida" in c:
+                rename_map[c] = "prioridade"
+            elif "tecnic" in c:
+                rename_map[c] = "tecnico"
+            elif "solicitan" in c:
+                rename_map[c] = "solicitante"
+            elif "departament" in c or "setor" in c:
+                rename_map[c] = "departamento"
+            elif "cidad" in c:
+                rename_map[c] = "cidade"
+            elif "titul" in c:
+                rename_map[c] = "titulo"
+            elif "ocorrenc" in c or "descricao" in c:
+                rename_map[c] = "ocorrencia"
+            elif "atividade" in c:
+                rename_map[c] = "atividade_realizada"
+            elif "nota" in c:
+                rename_map[c] = "nota_atendimento"
+            elif "comentario" in c:
+                rename_map[c] = "comentario_avaliacao"
+        
+        df_raw = df_raw.rename(columns=rename_map)
+
+        # 3. Garante que colunas que realmente não existem sejam criadas vazias
         for col in colunas_obrigatorias:
             if col not in df_raw.columns:
                 df_raw[col] = ""
 
-        # Limpeza de strings
+        # 4. Limpeza de strings e remoção de linhas completamente em branco
         for col in colunas_obrigatorias:
             df_raw[col] = (
                 df_raw[col]
@@ -74,6 +103,9 @@ def carregar_dados():
                 .str.strip()
                 .replace({"nan": "", "None": "", "null": ""})
             )
+
+        # Filtra e ignora linhas totalmente vazias vindas do Sheets
+        df_raw = df_raw[df_raw["id_chamado"] != ""].copy()
 
         df_raw["nota_num"] = pd.to_numeric(
             df_raw["nota_atendimento"], errors="coerce"
