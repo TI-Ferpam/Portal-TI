@@ -28,11 +28,13 @@ def conectar_google_sheets():
 def carregar_chamados():
     try:
         client = conectar_google_sheets()
+        
+        # Abre a planilha pelo ID e seleciona especificamente a aba 'chamados'
         planilha = client.open_by_key(
             "13Fu87VrDiC0NZuQw6zIphbvVkKfle6wEZ98vSjcdl2E"
-        ).sheet1
+        ).worksheet("chamados")
 
-        # Obtém todos os dados da planilha em formato matriz (lista de listas)
+        # Obtém todos os dados da aba em formato matriz (lista de listas)
         dados_brutos = planilha.get_all_values()
 
         if not dados_brutos:
@@ -48,5 +50,5 @@ def carregar_chamados():
         return df
 
     except Exception as e:
-        st.error(f"Erro ao acessar o Google Sheets: {e}")
+        st.error(f"Erro ao acessar a aba 'chamados' no Google Sheets: {e}")
         return pd.DataFrame()
