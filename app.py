@@ -138,7 +138,6 @@ st.markdown(
     f"""
 <style>
     header[data-testid="stHeader"] {{ background-color: transparent !important; }}
-    #MainMenu {{ visibility: hidden; }}
     footer {{ visibility: hidden; }}
 
     /* Estilização limpa dos Botões Principais */
@@ -498,7 +497,7 @@ if st.session_state.tela == "busca":
             else:
                 st.subheader(f"Localizado(s) {len(res)} chamado(s):")
 
-                for _, cham in res.iterrows():
+                for idx, cham in res.reset_index(drop=True).iterrows():
                     t_id = str(cham["id_chamado"]).strip()
                     pct, status_txt = calcular_progresso(cham)
                     badge_html = get_status_badge(cham.get("status", ""))
@@ -525,7 +524,7 @@ if st.session_state.tela == "busca":
                             st.write("")
                             st.button(
                                 "👁️ Ver detalhes",
-                                key=f"btn_usr_{t_id}",
+                                key=f"btn_usr_{t_id}_{idx}",
                                 on_click=abrir_ticket,
                                 args=(t_id,),
                                 use_container_width=True,
@@ -580,7 +579,7 @@ if st.session_state.tela == "busca":
             st.warning("Nenhum chamado encontrado com estes filtros.")
         else:
             st.subheader(f"Total na consulta: {len(res)} chamado(s)")
-            for _, cham in res.iterrows():
+            for idx, cham in res.reset_index(drop=True).iterrows():
                 t_id = str(cham["id_chamado"]).strip()
                 pct, status_txt = calcular_progresso(cham)
                 badge_html = get_status_badge(cham.get("status", ""))
@@ -607,7 +606,7 @@ if st.session_state.tela == "busca":
                         st.write("")
                         st.button(
                             "👁️ Ver detalhes",
-                            key=f"btn_adm_{t_id}",
+                            key=f"btn_adm_{t_id}_{idx}",
                             on_click=abrir_ticket,
                             args=(t_id,),
                             use_container_width=True,
@@ -1133,7 +1132,7 @@ if st.session_state.tela == "dashboard":
                 f"Exibindo {len(res_reviews)} comentário(s) encontrado(s):"
             )
 
-            for _, rev in res_reviews.iterrows():
+            for idx, rev in res_reviews.reset_index(drop=True).iterrows():
                 r_id = str(rev["id_chamado"]).strip()
                 r_solic = rev.get("solicitante", "Anônimo")
                 r_dep = rev.get("departamento", "N/A")
@@ -1158,7 +1157,7 @@ if st.session_state.tela == "dashboard":
                     with c_right:
                         st.button(
                             "👁️ Ver Ticket",
-                            key=f"btn_rev_{r_id}",
+                            key=f"btn_rev_{r_id}_{idx}",
                             on_click=abrir_ticket,
                             args=(r_id,),
                             use_container_width=True,
