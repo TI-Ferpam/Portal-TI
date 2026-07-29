@@ -74,7 +74,14 @@ def carregar_dados():
         # Remove linhas totalmente vazias ou sem ID
         df_raw = df_raw[df_raw["id_chamado"] != ""].copy()
 
-        df_raw["nota_num"] = pd.to_numeric(df_raw["nota_atendimento"], errors="coerce")
+        # CORREÇÃO: Troca a vírgula por ponto antes de converter para número
+        nota_limpa = (
+            df_raw["nota_atendimento"]
+            .astype(str)
+            .str.replace(",", ".", regex=False)
+            .str.strip()
+        )
+        df_raw["nota_num"] = pd.to_numeric(nota_limpa, errors="coerce")
         df_raw["data_aval_dt"] = pd.to_datetime(df_raw["data_avaliacao"], errors="coerce", dayfirst=True)
         return df_raw
 
