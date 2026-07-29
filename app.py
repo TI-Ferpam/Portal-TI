@@ -15,7 +15,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# CARREGAMENTO E TRATAMENTO DE DADOS
+# CARREGAMENTO E TRATAMENTO DE DADOS (MELHORADO)
 # ============================================================
 
 @st.cache_data(ttl=60)
@@ -50,6 +50,7 @@ def carregar_dados():
             df_empty["data_aval_dt"] = pd.Series(dtype="datetime64[ns]")
             return df_empty
 
+        # Normaliza os nomes das colunas
         df_raw.columns = [str(col).strip().lower() for col in df_raw.columns]
         df_raw = df_raw.loc[:, df_raw.columns != ""]
         df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
@@ -58,8 +59,15 @@ def carregar_dados():
             if col not in df_raw.columns:
                 df_raw[col] = ""
 
+        # Limpeza severa de strings (strip, replace nan/null)
         for col in colunas_obrigatorias:
-            df_raw[col] = df_raw[col].fillna("").astype(str).str.strip()
+            df_raw[col] = (
+                df_raw[col]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .replace({"nan": "", "None": "", "null": ""})
+            )
 
         df_raw["nota_num"] = pd.to_numeric(
             df_raw["nota_atendimento"], errors="coerce"
@@ -231,18 +239,33 @@ elif (
 # UTILS & RENDERIZAÇÃO
 # ============================================================
 
+def classificar_status_grupo(status_str):
+    s = str(status_str).strip().casefold()
+
+    # Mapeamento expandido de termos
+    concluidos_kw = ["concluído", "concluido", "finalizado", "fechado", "resolvido", "encerrado"]
+    andamento_kw = ["em andamento", "em atendimento", "atendendo", "execução", "execucao", "iniciado"]
+
+    if any(kw in s for kw in concluidos_kw):
+        return "Concluídos"
+    elif any(kw in s for kw in andamento_kw):
+        return "Em Andamento"
+    else:
+        return "Abertos"
+
+
 def calcular_progresso(chamado):
-    status = str(chamado.get("status", "")).strip().casefold()
+    grupo = classificar_status_grupo(chamado.get("status", ""))
     tecnico = str(chamado.get("tecnico", "")).strip().casefold()
     atividade = str(chamado.get("atividade_realizada", "")).strip().casefold()
 
-    if status in ["concluído", "concluido", "finalizado", "fechado"]:
+    if grupo == "Concluídos":
         return 100, "🟢 Chamado Finalizado"
-    elif status in ["em andamento", "em atendimento"]:
+    elif grupo == "Em Andamento":
         if atividade and atividade != "nan":
             return 80, "🔵 Em Atendimento (Atividade Registrada)"
         return 60, "🔵 Em Atendimento pelo Técnico"
-    elif tecnico and tecnico != "nan" and tecnico != "não atribuído":
+    elif tecnico and tecnico not in ["nan", "não atribuído", "nao atribuido", ""]:
         return 35, "🟡 Técnico Atribuído (Aguardando Início)"
     else:
         return 15, "🟠 Chamado Aberto na Fila"
@@ -250,26 +273,22 @@ def calcular_progresso(chamado):
 
 def get_status_badge(status):
     status_clean = str(status).strip()
-    status_lower = status_clean.casefold()
+    grupo = classificar_status_grupo(status_clean)
 
-    if status_lower in ["concluído", "concluido", "finalizado", "fechado"]:
+    if grupo == "Concluídos":
         color = "#10b981"
         bg = "rgba(16, 185, 129, 0.12)"
         icon = "🟢"
-    elif status_lower in ["em andamento", "em atendimento"]:
+    elif grupo == "Em Andamento":
         color = AZUL_FERPAM
         bg = "rgba(0, 51, 153, 0.12)"
         icon = "🔵"
-    elif status_lower in ["pendente", "aberto"]:
+    else:
         color = "#d97706"
         bg = "rgba(217, 119, 6, 0.12)"
         icon = "🟡"
-    else:
-        color = "#64748b"
-        bg = "rgba(100, 116, 139, 0.12)"
-        icon = "⚪"
 
-    return f"""<span style="background-color: {bg}; color: {color}; font-weight: 700; font-size: 0.82rem; padding: 4px 12px; border-radius: 20px; border: 1px solid {color}44; display: inline-flex; align-items: center; gap: 6px;">{icon} {status_clean}</span>"""
+    return f"""<span style="background-color: {bg}; color: {color}; font-weight: 700; font-size: 0.82rem; padding: 4px 12px; border-radius: 20px; border: 1px solid {color}44; display: inline-flex; align-items: center; gap: 6px;">{icon} {status_clean if status_clean else 'Aberto'}</span>"""
 
 
 def render_barra_progresso(pct, texto_estagio):
@@ -648,31 +667,15 @@ if st.session_state.tela == "dashboard":
         )
 
         total_chamados = len(df)
-        status_series = (
-            df["status"].astype(str).str.strip().str.casefold()
-        )
-        concluidos = len(
-            df[
-                status_series.isin(
-                    ["concluído", "concluido", "finalizado", "fechado"]
-                )
-            ]
-        )
-        em_andamento = len(
-            df[status_series.isin(["em andamento", "em atendimento"])]
-        )
-        pendentes = len(
-            df[
-                status_series.isin(
-                    [
-                        "pendente",
-                        "aberto",
-                        "aguardando terceiros",
-                        "aguardando solicitante",
-                    ]
-                )
-            ]
-        )
+        
+        # Classificação dinâmica por grupos
+        df_dash = df.copy()
+        df_dash["grupo_status"] = df_dash["status"].apply(classificar_status_grupo)
+
+        concluidos = len(df_dash[df_dash["grupo_status"] == "Concluídos"])
+        em_andamento = len(df_dash[df_dash["grupo_status"] == "Em Andamento"])
+        pendentes = len(df_dash[df_dash["grupo_status"] == "Abertos"])
+        
         taxa_conclusao = (
             (concluidos / total_chamados * 100) if total_chamados > 0 else 0
         )
@@ -744,10 +747,11 @@ if st.session_state.tela == "dashboard":
 
         with g1:
             st.subheader("🍩 Distribuição por Status")
-            df_status = df["status"].value_counts().reset_index()
-            df_status.columns = ["Status", "Quantidade"]
+            # Usa o status real ou 'Sem Status' se estiver vazio
+            s_counts = df["status"].replace("", "Não Especificado").value_counts().reset_index()
+            s_counts.columns = ["Status", "Quantidade"]
             fig_status = px.pie(
-                df_status,
+                s_counts,
                 names="Status",
                 values="Quantidade",
                 hole=0.45,
@@ -853,40 +857,15 @@ if st.session_state.tela == "dashboard":
 
         st.divider()
 
-        df_filtrado_dash = df.copy()
+        df_filtrado_dash = df_dash.copy()
         tipo_filtro = st.session_state.filtro_dash_tipo
         valor_filtro = st.session_state.filtro_dash_valor
 
         if tipo_filtro and valor_filtro:
             if tipo_filtro == "status_grupo":
-                s_series = (
-                    df_filtrado_dash["status"]
-                    .astype(str)
-                    .str.strip()
-                    .str.casefold()
-                )
-                if valor_filtro == "Concluídos":
-                    df_filtrado_dash = df_filtrado_dash[
-                        s_series.isin(
-                            ["concluído", "concluido", "finalizado", "fechado"]
-                        )
-                    ]
-                elif valor_filtro == "Em Andamento":
-                    df_filtrado_dash = df_filtrado_dash[
-                        s_series.isin(["em andamento", "em atendimento"])
-                    ]
-                elif valor_filtro == "Abertos":
-                    df_filtrado_dash = df_filtrado_dash[
-                        s_series.isin(
-                            [
-                                "pendente",
-                                "aberto",
-                                "aguardando terceiros",
-                                "aguardando solicitante",
-                            ]
-                        )
-                    ]
-
+                df_filtrado_dash = df_filtrado_dash[
+                    df_filtrado_dash["grupo_status"] == valor_filtro
+                ]
             elif tipo_filtro in [
                 "status",
                 "prioridade",
