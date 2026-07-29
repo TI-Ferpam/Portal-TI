@@ -39,12 +39,8 @@ def carregar_dados():
     try:
         data = carregar_chamados()
 
-        # Se o retorno for um dicionário de DataFrames (múltiplas abas)
         if isinstance(data, dict):
-            if "chamados" in data:
-                df_raw = data["chamados"].copy()
-            else:
-                df_raw = list(data.values())[0].copy()
+            df_raw = data.get("chamados", list(data.values())[0]).copy()
         elif isinstance(data, pd.DataFrame):
             df_raw = data.copy()
         else:
@@ -56,57 +52,26 @@ def carregar_dados():
             df_empty["data_aval_dt"] = pd.Series(dtype="datetime64[ns]")
             return df_empty
 
-        # 1. Normaliza cabeçalhos do Google Sheets (remove espaços nas pontas e minúsculas)
+        # 1. Normaliza nomes de colunas (caixa baixa e sem espaços)
         df_raw.columns = [str(col).strip().lower() for col in df_raw.columns]
         df_raw = df_raw.loc[:, df_raw.columns != ""]
         df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
 
-        # 2. Mapeamento de possíveis variações de nomes nas colunas
-        rename_map = {}
-        for c in df_raw.columns:
-            if "status" in c or "situa" in c:
-                rename_map[c] = "status"
-            elif "priorida" in c:
-                rename_map[c] = "prioridade"
-            elif "tecnic" in c:
-                rename_map[c] = "tecnico"
-            elif "solicitan" in c:
-                rename_map[c] = "solicitante"
-            elif "departament" in c or "setor" in c:
-                rename_map[c] = "departamento"
-            elif "cidad" in c:
-                rename_map[c] = "cidade"
-            elif "titul" in c:
-                rename_map[c] = "titulo"
-            elif "ocorrenc" in c or "descricao" in c:
-                rename_map[c] = "ocorrencia"
-            elif "atividade" in c:
-                rename_map[c] = "atividade_realizada"
-            elif "nota" in c:
-                rename_map[c] = "nota_atendimento"
-            elif "comentario" in c:
-                rename_map[c] = "comentario_avaliacao"
-        
-        df_raw = df_raw.rename(columns=rename_map)
-
-        # 3. Garante que colunas que realmente não existem sejam criadas vazias
+        # 2. Garante que todas as colunas necessárias existam sem sobrescrever o que já existe
         for col in colunas_obrigatorias:
             if col not in df_raw.columns:
                 df_raw[col] = ""
 
-        # 4. Limpeza de strings e remoção de linhas completamente em branco
+        # 3. Tratamento de valores nulos mantendo o conteúdo real
         for col in colunas_obrigatorias:
-            df_raw[col] = (
-                df_raw[col]
-                .fillna("")
-                .astype(str)
-                .str.strip()
-                .replace({"nan": "", "None": "", "null": ""})
-            )
+            df_raw[col] = df_raw[col].fillna("").astype(str).str.strip()
+            # Remove literais estranhos vindos de exportações
+            df_raw[col] = df_raw[col].replace({"nan": "", "None": "", "null": "", "<NA>": ""})
 
-        # Filtra e ignora linhas totalmente vazias vindas do Sheets
-        df_raw = df_raw[df_raw["id_chamado"] != ""].copy()
+        # 4. Remove apenas linhas que estão completamente vazias no Sheets
+        df_raw = df_raw[df_raw.apply(lambda row: "".join(row.values) != "", axis=1)].copy()
 
+        # 5. Conversões numéricas e de data
         df_raw["nota_num"] = pd.to_numeric(
             df_raw["nota_atendimento"], errors="coerce"
         )
