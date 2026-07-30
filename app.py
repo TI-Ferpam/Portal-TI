@@ -64,14 +64,14 @@ def carregar_dados():
             df_empty["nota_num"] = pd.Series(dtype=float)
             df_empty["sla_valido"] = pd.Series(dtype=bool)
             df_empty["eh_roadmap"] = pd.Series(dtype=bool)
+            df_empty["tem_3_datas"] = pd.Series(dtype=bool)
             return df_empty
 
-        # 1. Normalização dos nomes das colunas
+        # Normalização de colunas
         df_raw.columns = [str(col).strip().lower() for col in df_raw.columns]
         df_raw = df_raw.loc[:, df_raw.columns != ""]
         df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
 
-        # 2. Mapeamento de nomes de colunas
         mapeamento_colunas = {
             "id": "id_chamado",
             "ticket": "id_chamado",
@@ -87,24 +87,19 @@ def carregar_dados():
         }
         df_raw = df_raw.rename(columns=mapeamento_colunas)
 
-        # 3. Garantir existência das colunas
         for col in colunas_obrigatorias:
             if col not in df_raw.columns:
                 df_raw[col] = ""
 
-        # Limpeza genérica de strings
         for col in ["id_chamado", "solicitante", "titulo", "ocorrencia", "status", 
                     "prioridade", "departamento", "tecnico", "cidade", "atividade_realizada"]:
             df_raw[col] = df_raw[col].fillna("").astype(str).str.strip()
             df_raw[col] = df_raw[col].replace({"nan": "", "None": "", "null": "", "<NA>": ""})
 
-        # Tratar nota numérica
         nota_limpa = df_raw["nota_atendimento"].astype(str).str.replace(",", ".", regex=False).str.strip()
         df_raw["nota_num"] = pd.to_numeric(nota_limpa, errors="coerce")
 
-        # ============================================================
-        # DATAS E CÁLCULOS DE SLA E ROADMAP
-        # ============================================================
+        # Tratamento de Datas
         df_raw["dt_abertura"] = pd.to_datetime(df_raw["data_hora_abertura"], errors="coerce").fillna(
             pd.to_datetime(df_raw["data_inicial"], errors="coerce")
         )
@@ -113,22 +108,25 @@ def carregar_dados():
             pd.to_datetime(df_raw["data_final"], errors="coerce")
         )
 
-        # Minutos totais, até técnico e de resolução
+        # Checagem estrita dos 3 campos de data preenchidos
+        df_raw["tem_3_datas"] = (
+            df_raw["dt_abertura"].notna() &
+            df_raw["dt_tecnico"].notna() &
+            df_raw["dt_conclusao_efetiva"].notna()
+        )
+
         df_raw["min_total"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
         df_raw["min_ate_tecnico"] = (df_raw["dt_tecnico"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
         df_raw["min_resolucao"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_tecnico"]).dt.total_seconds() / 60.0
 
-        # Regra do SLA Válido (necessita ter as 3 datas preenchidas sem tempos negativos)
         df_raw["sla_valido"] = (
-            df_raw["dt_abertura"].notna() &
-            df_raw["dt_tecnico"].notna() &
-            df_raw["dt_conclusao_efetiva"].notna() &
+            df_raw["tem_3_datas"] &
             (df_raw["min_total"] >= 0) &
             (df_raw["min_ate_tecnico"] >= 0) &
             (df_raw["min_resolucao"] >= 0)
         )
 
-        # REGRA DE ROADMAP: Chamado levar 5 dias ou mais pra conclusão (>= 7200 minutos)
+        # MARCAÇÃO DE ROADMAP (>= 5 dias)
         df_raw["eh_roadmap"] = (
             (df_raw["min_total"] >= LIMITE_ROADMAP_MINUTOS) | 
             (df_raw["min_resolucao"] >= LIMITE_ROADMAP_MINUTOS)
@@ -142,6 +140,7 @@ def carregar_dados():
         df_err["nota_num"] = pd.Series(dtype=float)
         df_err["sla_valido"] = pd.Series(dtype=bool)
         df_err["eh_roadmap"] = pd.Series(dtype=bool)
+        df_err["tem_3_datas"] = pd.Series(dtype=bool)
         return df_err
 
 df = carregar_dados()
@@ -488,10 +487,9 @@ if st.session_state.tela == "dashboard":
         fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin=dict(t=30, b=20, l=20, r=20))
         return fig
 
-    tab_op, tab_sla, tab_roadmap, tab_csat, tab_reviews = st.tabs([
+    tab_op, tab_sla, tab_csat, tab_reviews = st.tabs([
         "📊 Operação & Volumetria", 
         "⏱️ SLAs & Médias de Tempo",
-        "🗺️ Chamados em Roadmap (>= 5 dias)", 
         "⭐ Satisfação & Notas (CSAT)", 
         "💬 Feed de Reviews & Feedback"
     ])
@@ -598,11 +596,11 @@ if st.session_state.tela == "dashboard":
             st.dataframe(df_filtrado_dash[cols_exibicao], use_container_width=True, hide_index=True)
 
     # ============================================================
-    # TAB: SLAs & MÉDIAS DE TEMPO (EXCLUI OS ROADMAPS >= 5 DIAS)
+    # TAB: SLAs & MÉDIAS DE TEMPO + SEÇÃO ROADMAPS NO RODAPÉ
     # ============================================================
     with tab_sla:
         st.subheader("⏱️ Indicadores Médios de SLA da Equipe (Operacional)")
-        st.caption("Exclui projetos/roadmaps (>= 5 dias) para manter a precisão dos chamados operacionais do dia a dia.")
+        st.caption("Exclui chamados de longo prazo (>= 5 dias) para manter a precisão das solicitações do dia a dia.")
 
         # Excluir Roadmaps da média do SLA tradicional
         df_sla_filtrado = df[
@@ -654,34 +652,34 @@ if st.session_state.tela == "dashboard":
             df_tec_table = pd.DataFrame(rows_tec)
             st.dataframe(df_tec_table, use_container_width=True, hide_index=True)
 
-    # ============================================================
-    # TAB: CHAMADOS EM ROADMAP (>= 5 DIAS)
-    # ============================================================
-    with tab_roadmap:
-        st.subheader("🗺️ Chamados Longos & Projetos em Roadmap")
-        st.caption("Lista de solicitações com tempo de resolução ou execução superior a 5 dias.")
+        st.divider()
 
-        df_roadmaps = df[df["eh_roadmap"] == True].copy()
+        # ============================================================
+        # SEÇÃO INFERIOR: ROADMAPS (SÓ APARECE SE AS 3 DATAS ESTIVEREM PREENCHIDAS)
+        # ============================================================
+        st.subheader("🗺️ Chamados em Roadmap (>= 5 dias)")
+        st.caption("Esta seção exibe apenas os chamados longos que possuem os 3 campos de data obrigatoriamente preenchidos na planilha.")
 
-        if df_roadmaps.empty:
-            st.info("🎉 Nenhum chamado longo ou projeto com mais de 5 dias encontrado.")
+        # Filtro estrito: Pertencer a Roadmap (>= 5 dias) E ter as 3 datas preenchidas
+        df_roadmaps_validos = df[
+            (df["eh_roadmap"] == True) & 
+            (df["tem_3_datas"] == True)
+        ].copy()
+
+        if df_roadmaps_validos.empty:
+            st.info("ℹ️ Não há nenhum chamado de Roadmap (>= 5 dias) com as **3 datas preenchidas** no momento.")
         else:
-            r1, r2 = st.columns(2)
-            with r1:
-                st.metric("📦 Total de Chamados em Roadmap", len(df_roadmaps))
-            with r2:
-                tempo_medio_road = df_roadmaps["min_total"].mean() if not df_roadmaps["min_total"].isna().all() else 0
-                st.metric("⏳ Tempo Médio desses Projetos", formatar_tempo(tempo_medio_road))
+            st.success(f"✅ Exibindo **{len(df_roadmaps_validos)}** chamado(s) em Roadmap que possuem os 3 registros de data completos:")
 
-            st.divider()
+            df_roadmaps_validos["Tempo Total Conclusão"] = df_roadmaps_validos["min_total"].apply(formatar_tempo)
+            df_roadmaps_validos["Tempo Execução Técnico"] = df_roadmaps_validos["min_resolucao"].apply(formatar_tempo)
+            df_roadmaps_validos["Tempo até Assumir"] = df_roadmaps_validos["min_ate_tecnico"].apply(formatar_tempo)
 
-            # Tabela de Roadmaps com formatação amigável
-            df_roadmaps_display = df_roadmaps.copy()
-            df_roadmaps_display["Tempo Total Estimado/Gasto"] = df_roadmaps_display["min_total"].apply(formatar_tempo)
-            df_roadmaps_display["Tempo Execução Técnico"] = df_roadmaps_display["min_resolucao"].apply(formatar_tempo)
-
-            cols_roadmap = ["id_chamado", "titulo", "solicitante", "tecnico", "departamento", "status", "Tempo Execução Técnico", "Tempo Total Estimado/Gasto"]
-            st.dataframe(df_roadmaps_display[cols_roadmap], use_container_width=True, hide_index=True)
+            cols_show_roadmap = [
+                "id_chamado", "titulo", "solicitante", "departamento", 
+                "tecnico", "status", "Tempo até Assumir", "Tempo Execução Técnico", "Tempo Total Conclusão"
+            ]
+            st.dataframe(df_roadmaps_validos[cols_show_roadmap], use_container_width=True, hide_index=True)
 
     # ============================================================
     # TAB: SATISFAÇÃO & CSAT
