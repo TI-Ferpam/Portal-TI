@@ -590,72 +590,82 @@ if st.session_state.tela == "dashboard":
     # ============================================================
     # TAB: SLAs & MÉDIAS DE TEMPO (CORRIGIDO)
     # ============================================================
-    with tab_sla:
-        st.subheader("⏱️ Indicadores Médios de SLA da Equipe")
-        st.caption("Atenção: Os cálculos consideram unicamente os chamados que possuem **todas as 3 datas** preenchidas (Abertura, Atribuição do Técnico e Conclusão).")
+   # ============================================================
+# TAB: SLAs & MÉDIAS DE TEMPO (REGRA RÍGIDA DE 3 DATAS)
+# ============================================================
+with tab_sla:
+    st.subheader("⏱️ Indicadores Médios de SLA da Equipe")
+    st.caption("Regra: Considera APENAS chamados com Data de Abertura, Data do Técnico e Data de Conclusão totalmente preenchidas.")
 
-        df_sla_validos = df[df["sla_valido"] == True].copy()
+    # 1. Tratamento e conversão de datas estritas
+    df["dt_abertura"] = pd.to_datetime(df["data_hora_abertura"], errors="coerce").fillna(
+        pd.to_datetime(df["data_inicial"], errors="coerce")
+    )
+    df["dt_tecnico"] = pd.to_datetime(df["data_tecnico"], errors="coerce")
+    df["dt_conclusao"] = pd.to_datetime(df["data_conclusao"], errors="coerce")
 
-        if df_sla_validos.empty:
-            st.warning("Nenhum chamado na planilha possui as 3 datas preenchidas ao mesmo tempo para calcular métricas válidas.")
-        else:
-            med_assumir = df_sla_validos["min_ate_tecnico"].mean()
-            med_resolucao = df_sla_validos["min_resolucao"].mean()
-            med_total = df_sla_validos["min_total"].mean()
+    # 2. Exigência estrita: As 3 datas precisam existir
+    df["sla_valido"] = (
+        df["dt_abertura"].notna() & 
+        df["dt_tecnico"].notna() & 
+        df["dt_conclusao"].notna()
+    )
 
-            col_sla1, col_sla2, col_sla3 = st.columns(3)
-            with col_sla1:
-                st.metric(
-                    label="⏳ Média para Assumir o Chamado",
-                    value=formatar_tempo(med_assumir),
-                    help="Tempo decorrido entre Abertura e Atribuição do Técnico."
-                )
-            with col_sla2:
-                st.metric(
-                    label="🔧 Média de Resolução",
-                    value=formatar_tempo(med_resolucao),
-                    help="Tempo decorrido do momento que o técnico assume até a Conclusão."
-                )
-            with col_sla3:
-                st.metric(
-                    label="🏁 Média do Tempo Total",
-                    value=formatar_tempo(med_total),
-                    help="Tempo total da Abertura até a Conclusão."
-                )
+    df_sla_validos = df[df["sla_valido"] == True].copy()
 
-            st.divider()
+    if df_sla_validos.empty:
+        st.warning("⚠️ Nenhum chamado na planilha possui as 3 datas preenchidas ao mesmo tempo (Abertura, Técnico e Conclusão).")
+    else:
+        # Cálculos numéricos em minutos
+        df_sla_validos["min_ate_tecnico"] = (df_sla_validos["dt_tecnico"] - df_sla_validos["dt_abertura"]).dt.total_seconds() / 60.0
+        df_sla_validos["min_resolucao"] = (df_sla_validos["dt_conclusao"] - df_sla_validos["dt_tecnico"]).dt.total_seconds() / 60.0
+        df_sla_validos["min_total"] = (df_sla_validos["dt_conclusao"] - df_sla_validos["dt_abertura"]).dt.total_seconds() / 60.0
 
-            # Tabela individual por Técnico (mostra N/A se o técnico não tiver chamados com as 3 datas)
-            st.subheader("👨‍💻 Desempenho de SLA por Técnico")
+        # Média Geral
+        med_assumir = df_sla_validos["min_ate_tecnico"].mean()
+        med_resolucao = df_sla_validos["min_resolucao"].mean()
+        med_total = df_sla_validos["min_total"].mean()
+
+        col_sla1, col_sla2, col_sla3 = st.columns(3)
+        with col_sla1:
+            st.metric("⏳ Média para Assumir", formatar_tempo(med_assumir))
+        with col_sla2:
+            st.metric("🔧 Média de Resolução", formatar_tempo(med_resolucao))
+        with col_sla3:
+            st.metric("🏁 Média do Tempo Total", formatar_tempo(med_total))
+
+        st.divider()
+
+        # Tabela Por Técnico
+        st.subheader("👨‍💻 Desempenho de SLA por Técnico")
+        tecnicos_unicos = sorted([
+            str(t).strip() for t in df["tecnico"].unique() 
+            if str(t).strip() and str(t).strip().casefold() not in ["nan", "não atribuído", "nao atribuido", ""]
+        ], key=str.casefold)
+
+        rows_tec = []
+        for tec in tecnicos_unicos:
+            sub = df_sla_validos[df_sla_validos["tecnico"].astype(str).str.strip().str.casefold() == tec.casefold()]
             
-            tecnicos_unicos = sorted([
-                str(t).strip() for t in df["tecnico"].unique() 
-                if str(t).strip() and str(t).strip().casefold() not in ["nan", "não atribuído", "nao atribuido", ""]
-            ], key=str.casefold)
+            if not sub.empty:
+                m_ass = sub["min_ate_tecnico"].mean()
+                m_res = sub["min_resolucao"].mean()
+                m_tot = sub["min_total"].mean()
+                qtd = len(sub)
+            else:
+                m_ass, m_res, m_tot = None, None, None
+                qtd = 0
 
-            rows_tec = []
-            for tec in tecnicos_unicos:
-                df_tec_sla = df_sla_validos[df_sla_validos["tecnico"].astype(str).str.strip().str.casefold() == tec.casefold()]
-                
-                if not df_tec_sla.empty:
-                    m_ass = df_tec_sla["min_ate_tecnico"].mean()
-                    m_res = df_tec_sla["min_resolucao"].mean()
-                    m_tot = df_tec_sla["min_total"].mean()
-                    qtd_validos = len(df_tec_sla)
-                else:
-                    m_ass, m_res, m_tot = None, None, None
-                    qtd_validos = 0
+            rows_tec.append({
+                "Técnico": tec,
+                "Média até Assumir": formatar_tempo(m_ass),
+                "Média Resolução": formatar_tempo(m_res),
+                "Média Tempo Total": formatar_tempo(m_tot),
+                "Chamados Válidos (SLA)": qtd
+            })
 
-                rows_tec.append({
-                    "Técnico": tec,
-                    "Média até Assumir": formatar_tempo(m_ass),
-                    "Média Resolução": formatar_tempo(m_res),
-                    "Média Tempo Total": formatar_tempo(m_tot),
-                    "Chamados Válidos para SLA": qtd_validos
-                })
-
-            df_tec_table = pd.DataFrame(rows_tec)
-            st.dataframe(df_tec_table, use_container_width=True, hide_index=True)
+        df_tec_table = pd.DataFrame(rows_tec)
+        st.dataframe(df_tec_table, use_container_width=True, hide_index=True)
 
     with tab_csat:
         df_avaliados = df[df["nota_num"].notna() & (df["nota_num"] > 0)].copy()
