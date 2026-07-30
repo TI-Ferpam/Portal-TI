@@ -14,6 +14,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# LISTA DE TÉCNICOS PERMITIDOS NO SLA
+TECNICOS_PERMITIDOS = ["Matheus Juliati", "Jair de Alcantara"]
+
 # ============================================================
 # FUNÇÃO AUXILIAR DE FORMATAÇÃO DE TEMPO
 # ============================================================
@@ -110,16 +113,15 @@ def carregar_dados():
             pd.to_datetime(df_raw["data_final"], errors="coerce")
         )
 
-        # Cálculo de minutos totais de resolução
+        # Minutos totais
         df_raw["min_total"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
-        # Filtrar apenas diferenças válidas (não negativas)
         df_raw.loc[df_raw["min_total"] < 0, "min_total"] = None
 
-        # Minutos até atribuição de técnico
+        # Minutos até atribuição
         df_raw["min_ate_tecnico"] = (df_raw["dt_tecnico"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
         df_raw.loc[df_raw["min_ate_tecnico"] < 0, "min_ate_tecnico"] = None
 
-        # Minutos de execução do técnico até a conclusão
+        # Minutos de execução do técnico
         df_raw["min_resolucao"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_tecnico"]).dt.total_seconds() / 60.0
         df_raw.loc[df_raw["min_resolucao"] < 0, "min_resolucao"] = None
 
@@ -587,20 +589,24 @@ if st.session_state.tela == "dashboard":
             st.dataframe(df_filtrado_dash[cols_exibicao], use_container_width=True, hide_index=True)
 
     # ============================================================
-    # TAB: SLAs & MÉDIAS DE TEMPO
+    # TAB: SLAs & MÉDIAS DE TEMPO (FILTRADO PARA MATHEUS E JAIR)
     # ============================================================
     with tab_sla:
         st.subheader("⏱️ Indicadores Médios de SLA da Equipe")
-        st.caption("Calcula médias de atendimento com base nas datas registradas no sistema.")
+        st.caption("Considera exclusivamente os técnicos Matheus Juliati e Jair de Alcantara.")
 
-        df_sla_validos = df[df["sla_valido"] == True].copy()
+        # Filtrar df de SLA apenas para os 2 técnicos permitidos
+        df_sla_filtrado = df[
+            (df["sla_valido"] == True) & 
+            (df["tecnico"].astype(str).str.strip().isin(TECNICOS_PERMITIDOS))
+        ].copy()
 
-        if df_sla_validos.empty:
-            st.warning("⚠️ Nenhum chamado na planilha possui dados de data válidos para cálculo de SLA.")
+        if df_sla_filtrado.empty:
+            st.warning("⚠️ Nenhum chamado válido encontrado para os técnicos selecionados.")
         else:
-            med_assumir = df_sla_validos["min_ate_tecnico"].dropna().mean()
-            med_resolucao = df_sla_validos["min_resolucao"].dropna().mean()
-            med_total = df_sla_validos["min_total"].mean()
+            med_assumir = df_sla_filtrado["min_ate_tecnico"].dropna().mean()
+            med_resolucao = df_sla_filtrado["min_resolucao"].dropna().mean()
+            med_total = df_sla_filtrado["min_total"].dropna().mean()
 
             col_sla1, col_sla2, col_sla3 = st.columns(3)
             with col_sla1:
@@ -613,19 +619,15 @@ if st.session_state.tela == "dashboard":
             st.divider()
 
             st.subheader("👨‍💻 Desempenho de SLA por Técnico")
-            tecnicos_unicos = sorted([
-                str(t).strip() for t in df["tecnico"].unique() 
-                if str(t).strip() and str(t).strip().casefold() not in ["nan", "não atribuído", "nao atribuido", ""]
-            ], key=str.casefold)
 
             rows_tec = []
-            for tec in tecnicos_unicos:
-                sub = df_sla_validos[df_sla_validos["tecnico"].astype(str).str.strip().str.casefold() == tec.casefold()]
+            for tec in TECNICOS_PERMITIDOS:
+                sub = df_sla_filtrado[df_sla_filtrado["tecnico"].astype(str).str.strip().str.casefold() == tec.casefold()]
                 
                 if not sub.empty:
                     m_ass = sub["min_ate_tecnico"].dropna().mean()
                     m_res = sub["min_resolucao"].dropna().mean()
-                    m_tot = sub["min_total"].mean()
+                    m_tot = sub["min_total"].dropna().mean()
                     qtd = len(sub)
                 else:
                     m_ass, m_res, m_tot = None, None, None
