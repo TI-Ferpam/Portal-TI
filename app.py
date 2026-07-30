@@ -94,8 +94,6 @@ def carregar_dados():
             df_raw[col] = df_raw[col].fillna("").astype(str).str.strip()
             df_raw[col] = df_raw[col].replace({"nan": "", "None": "", "null": "", "<NA>": ""})
 
-        df_raw = df_raw[df_raw["id_chamado"] != ""].copy()
-
         # Tratar nota numérica
         nota_limpa = df_raw["nota_atendimento"].astype(str).str.replace(",", ".", regex=False).str.strip()
         df_raw["nota_num"] = pd.to_numeric(nota_limpa, errors="coerce")
@@ -108,23 +106,24 @@ def carregar_dados():
             pd.to_datetime(df_raw["data_inicial"], errors="coerce")
         )
         df_raw["dt_tecnico"] = pd.to_datetime(df_raw["data_tecnico"], errors="coerce")
-        df_raw["dt_conclusao"] = pd.to_datetime(df_raw["data_conclusao"], errors="coerce")
-
-        # Flag indicando se as 3 datas essenciais estão preenchidas
-        df_raw["sla_valido"] = (
-            df_raw["dt_abertura"].notna() & 
-            df_raw["dt_tecnico"].notna() & 
-            df_raw["dt_conclusao"].notna()
+        df_raw["dt_conclusao_efetiva"] = pd.to_datetime(df_raw["data_conclusao"], errors="coerce").fillna(
+            pd.to_datetime(df_raw["data_final"], errors="coerce")
         )
 
-        df_raw["min_ate_tecnico"] = None
-        df_raw["min_resolucao"] = None
-        df_raw["min_total"] = None
+        # Cálculo de minutos totais de resolução
+        df_raw["min_total"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
+        # Filtrar apenas diferenças válidas (não negativas)
+        df_raw.loc[df_raw["min_total"] < 0, "min_total"] = None
 
-        m_valido = df_raw["sla_valido"]
-        df_raw.loc[m_valido, "min_ate_tecnico"] = (df_raw.loc[m_valido, "dt_tecnico"] - df_raw.loc[m_valido, "dt_abertura"]).dt.total_seconds() / 60.0
-        df_raw.loc[m_valido, "min_resolucao"] = (df_raw.loc[m_valido, "dt_conclusao"] - df_raw.loc[m_valido, "dt_tecnico"]).dt.total_seconds() / 60.0
-        df_raw.loc[m_valido, "min_total"] = (df_raw.loc[m_valido, "dt_conclusao"] - df_raw.loc[m_valido, "dt_abertura"]).dt.total_seconds() / 60.0
+        # Minutos até atribuição de técnico
+        df_raw["min_ate_tecnico"] = (df_raw["dt_tecnico"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
+        df_raw.loc[df_raw["min_ate_tecnico"] < 0, "min_ate_tecnico"] = None
+
+        # Minutos de execução do técnico até a conclusão
+        df_raw["min_resolucao"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_tecnico"]).dt.total_seconds() / 60.0
+        df_raw.loc[df_raw["min_resolucao"] < 0, "min_resolucao"] = None
+
+        df_raw["sla_valido"] = df_raw["min_total"].notna()
 
         return df_raw
 
@@ -345,7 +344,7 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
         with t3:
             st.metric("🏁 Tempo Total", formatar_tempo(chamado.get("min_total")))
     else:
-        st.info("ℹ️ Para calcular os tempos deste chamado, é necessário ter as 3 datas gravadas (Abertura, Atribuição do Técnico e Conclusão).")
+        st.info("ℹ️ Chamado em aberto ou sem carimbos de tempo para cálculo de SLA.")
 
     st.divider()
     col_a, col_b = st.columns(2)
@@ -588,134 +587,102 @@ if st.session_state.tela == "dashboard":
             st.dataframe(df_filtrado_dash[cols_exibicao], use_container_width=True, hide_index=True)
 
     # ============================================================
-    # TAB: SLAs & MÉDIAS DE TEMPO (CORRIGIDO)
+    # TAB: SLAs & MÉDIAS DE TEMPO
     # ============================================================
-   # ============================================================
-# TAB: SLAs & MÉDIAS DE TEMPO (REGRA RÍGIDA DE 3 DATAS)
-# ============================================================
-with tab_sla:
-    st.subheader("⏱️ Indicadores Médios de SLA da Equipe")
-    st.caption("Regra: Considera APENAS chamados com Data de Abertura, Data do Técnico e Data de Conclusão totalmente preenchidas.")
+    with tab_sla:
+        st.subheader("⏱️ Indicadores Médios de SLA da Equipe")
+        st.caption("Calcula médias de atendimento com base nas datas registradas no sistema.")
 
-    # 1. Tratamento e conversão de datas estritas
-    df["dt_abertura"] = pd.to_datetime(df["data_hora_abertura"], errors="coerce").fillna(
-        pd.to_datetime(df["data_inicial"], errors="coerce")
-    )
-    df["dt_tecnico"] = pd.to_datetime(df["data_tecnico"], errors="coerce")
-    df["dt_conclusao"] = pd.to_datetime(df["data_conclusao"], errors="coerce")
+        df_sla_validos = df[df["sla_valido"] == True].copy()
 
-    # 2. Exigência estrita: As 3 datas precisam existir
-    df["sla_valido"] = (
-        df["dt_abertura"].notna() & 
-        df["dt_tecnico"].notna() & 
-        df["dt_conclusao"].notna()
-    )
-
-    df_sla_validos = df[df["sla_valido"] == True].copy()
-
-    if df_sla_validos.empty:
-        st.warning("⚠️ Nenhum chamado na planilha possui as 3 datas preenchidas ao mesmo tempo (Abertura, Técnico e Conclusão).")
-    else:
-        # Cálculos numéricos em minutos
-        df_sla_validos["min_ate_tecnico"] = (df_sla_validos["dt_tecnico"] - df_sla_validos["dt_abertura"]).dt.total_seconds() / 60.0
-        df_sla_validos["min_resolucao"] = (df_sla_validos["dt_conclusao"] - df_sla_validos["dt_tecnico"]).dt.total_seconds() / 60.0
-        df_sla_validos["min_total"] = (df_sla_validos["dt_conclusao"] - df_sla_validos["dt_abertura"]).dt.total_seconds() / 60.0
-
-        # Média Geral
-        med_assumir = df_sla_validos["min_ate_tecnico"].mean()
-        med_resolucao = df_sla_validos["min_resolucao"].mean()
-        med_total = df_sla_validos["min_total"].mean()
-
-        col_sla1, col_sla2, col_sla3 = st.columns(3)
-        with col_sla1:
-            st.metric("⏳ Média para Assumir", formatar_tempo(med_assumir))
-        with col_sla2:
-            st.metric("🔧 Média de Resolução", formatar_tempo(med_resolucao))
-        with col_sla3:
-            st.metric("🏁 Média do Tempo Total", formatar_tempo(med_total))
-
-        st.divider()
-
-        # Tabela Por Técnico
-        st.subheader("👨‍💻 Desempenho de SLA por Técnico")
-        tecnicos_unicos = sorted([
-            str(t).strip() for t in df["tecnico"].unique() 
-            if str(t).strip() and str(t).strip().casefold() not in ["nan", "não atribuído", "nao atribuido", ""]
-        ], key=str.casefold)
-
-        rows_tec = []
-        for tec in tecnicos_unicos:
-            sub = df_sla_validos[df_sla_validos["tecnico"].astype(str).str.strip().str.casefold() == tec.casefold()]
-            
-            if not sub.empty:
-                m_ass = sub["min_ate_tecnico"].mean()
-                m_res = sub["min_resolucao"].mean()
-                m_tot = sub["min_total"].mean()
-                qtd = len(sub)
-            else:
-                m_ass, m_res, m_tot = None, None, None
-                qtd = 0
-
-            rows_tec.append({
-                "Técnico": tec,
-                "Média até Assumir": formatar_tempo(m_ass),
-                "Média Resolução": formatar_tempo(m_res),
-                "Média Tempo Total": formatar_tempo(m_tot),
-                "Chamados Válidos (SLA)": qtd
-            })
-
-        df_tec_table = pd.DataFrame(rows_tec)
-        st.dataframe(df_tec_table, use_container_width=True, hide_index=True)
-
-    with tab_csat:
-        df_avaliados = df[df["nota_num"].notna() & (df["nota_num"] > 0)].copy()
-        if df_avaliados.empty:
-            st.info("Ainda não existem avaliações/notas registradas na planilha.")
+        if df_sla_validos.empty:
+            st.warning("⚠️ Nenhum chamado na planilha possui dados de data válidos para cálculo de SLA.")
         else:
-            media_csat = df_avaliados["nota_num"].mean()
-            total_avaliacoes = len(df_avaliados)
-            pct_satisfeitos = (len(df_avaliados[df_avaliados["nota_num"] >= 4]) / total_avaliacoes) * 100
+            med_assumir = df_sla_validos["min_ate_tecnico"].dropna().mean()
+            med_resolucao = df_sla_validos["min_resolucao"].dropna().mean()
+            med_total = df_sla_validos["min_total"].mean()
 
-            c1, c2, c3 = st.columns(3)
-            with c1: st.metric("Média CSAT", f"{media_csat:.2f} / 5.0")
-            with c2: st.metric("Total de Avaliações", total_avaliacoes)
-            with c3: st.metric("% Satisfeitos (Notas 4 e 5)", f"{pct_satisfeitos:.1f}%")
+            col_sla1, col_sla2, col_sla3 = st.columns(3)
+            with col_sla1:
+                st.metric("⏳ Média para Assumir", formatar_tempo(med_assumir))
+            with col_sla2:
+                st.metric("🔧 Média de Execução do Técnico", formatar_tempo(med_resolucao))
+            with col_sla3:
+                st.metric("🏁 Média de Tempo Total de Resolução", formatar_tempo(med_total))
 
             st.divider()
-            col_csat1, col_csat2 = st.columns(2)
-            with col_csat1:
-                st.subheader("⭐ Distribuição de Notas")
-                df_dist_notas = df_avaliados["nota_num"].astype(int).value_counts().reset_index()
-                df_dist_notas.columns = ["Nota", "Quantidade"]
-                df_dist_notas = df_dist_notas.sort_values(by="Nota")
-                fig_notas = px.bar(df_dist_notas, x="Nota", y="Quantidade", text="Quantidade", color="Nota", color_continuous_scale="RdYlGn")
-                st.plotly_chart(aplicar_layout_plotly(fig_notas), use_container_width=True)
 
-            with col_csat2:
-                st.subheader("👨‍💻 Média por Técnico")
-                df_tec_csat = df_avaliados.groupby("tecnico")["nota_num"].agg(["mean", "count"]).reset_index()
-                df_tec_csat.columns = ["Técnico", "Média", "Avaliações"]
-                df_tec_csat = df_tec_csat[df_tec_csat["Técnico"] != ""].sort_values(by="Média", ascending=False)
-                fig_tec_csat = px.bar(df_tec_csat, x="Técnico", y="Média", text="Média", hover_data=["Avaliações"])
-                fig_tec_csat.update_traces(texttemplate="%{text:.2f}")
-                st.plotly_chart(aplicar_layout_plotly(fig_tec_csat), use_container_width=True)
+            st.subheader("👨‍💻 Desempenho de SLA por Técnico")
+            tecnicos_unicos = sorted([
+                str(t).strip() for t in df["tecnico"].unique() 
+                if str(t).strip() and str(t).strip().casefold() not in ["nan", "não atribuído", "nao atribuido", ""]
+            ], key=str.casefold)
 
-    with tab_reviews:
-        df_comments = df[df["comentario_avaliacao"].fillna("").astype(str).str.strip() != ""].copy()
-        if df_comments.empty:
-            st.info("Nenhum comentário/feedback foi registrado até o momento.")
+            rows_tec = []
+            for tec in tecnicos_unicos:
+                sub = df_sla_validos[df_sla_validos["tecnico"].astype(str).str.strip().str.casefold() == tec.casefold()]
+                
+                if not sub.empty:
+                    m_ass = sub["min_ate_tecnico"].dropna().mean()
+                    m_res = sub["min_resolucao"].dropna().mean()
+                    m_tot = sub["min_total"].mean()
+                    qtd = len(sub)
+                else:
+                    m_ass, m_res, m_tot = None, None, None
+                    qtd = 0
+
+                rows_tec.append({
+                    "Técnico": tec,
+                    "Média até Assumir": formatar_tempo(m_ass),
+                    "Média Execução Técnico": formatar_tempo(m_res),
+                    "Média Tempo Total": formatar_tempo(m_tot),
+                    "Chamados Finalizados": qtd
+                })
+
+            df_tec_table = pd.DataFrame(rows_tec)
+            st.dataframe(df_tec_table, use_container_width=True, hide_index=True)
+
+    # ============================================================
+    # TAB: SATISFAÇÃO & CSAT
+    # ============================================================
+    with tab_csat:
+        st.subheader("⭐ Indicadores de Satisfação (CSAT)")
+        df_avaliados = df[df["nota_num"].notna() & (df["nota_num"] > 0)].copy()
+
+        if df_avaliados.empty:
+            st.info("Nenhuma avaliação de atendimento registrada até o momento.")
         else:
-            st.subheader(f"💬 Comentários dos Usuários ({len(df_comments)})")
-            for idx, row in df_comments.iterrows():
+            csat_medio = df_avaliados["nota_num"].mean()
+            total_avals = len(df_avaliados)
+            pct_satisfeitos = (len(df_avaliados[df_avaliados["nota_num"] >= 4]) / total_avals) * 100
+
+            c1, c2, c3 = st.columns(3)
+            with c1: st.metric("⭐ Nota Média CSAT", f"{csat_medio:.2f} / 5.0")
+            with c2: st.metric("📊 Total de Avaliações", total_avals)
+            with c3: st.metric("👍 Taxa de Satisfação (Notas 4 e 5)", f"{pct_satisfeitos:.1f}%")
+
+            st.divider()
+            st.subheader("📊 Distribuição de Notas")
+            df_dist = df_avaliados["nota_num"].value_counts().reset_index()
+            df_dist.columns = ["Nota", "Quantidade"]
+            fig_dist = px.bar(df_dist, x="Nota", y="Quantidade", text="Quantidade", color="Nota")
+            st.plotly_chart(aplicar_layout_plotly(fig_dist), use_container_width=True)
+
+    # ============================================================
+    # TAB: FEED DE REVIEWS & FEEDBACK
+    # ============================================================
+    with tab_reviews:
+        st.subheader("💬 Feedbacks e Comentários dos Solicitantes")
+        df_coments = df[df["comentario_avaliacao"].notna() & (df["comentario_avaliacao"].astype(str).str.strip() != "") & (df["comentario_avaliacao"].astype(str).str.strip().str.casefold() != "nan")].copy()
+
+        if df_coments.empty:
+            st.info("Nenhum comentário registrado nas avaliações.")
+        else:
+            for _, r in df_coments.iterrows():
                 with st.container(border=True):
-                    col_r1, col_r2 = st.columns([8, 2])
-                    with col_r1:
-                        st.markdown(f"**Ticket #{row['id_chamado']}** - {row['solicitante']} ({row['departamento']})")
-                        st.write(f'"{row["comentario_avaliacao"]}"')
-                        if row['data_avaliacao']:
-                            st.caption(f"🗓️ {row['data_avaliacao']}")
-                    with col_r2:
-                        estrelas = render_estrelas(row['nota_num'])
-                        if estrelas:
-                            st.markdown(f"**{estrelas}**")
-                        st.caption(f"Técnico: {row['tecnico']}")
+                    st.markdown(f"**Chamado #{r['id_chamado']}** - Solicitante: *{r.get('solicitante', 'Anônimo')}*")
+                    if pd.notna(r.get("nota_num")):
+                        st.markdown(render_estrelas(r["nota_num"]))
+                    st.write(f'"{r["comentario_avaliacao"]}"')
+                    if pd.notna(r.get("data_avaliacao")):
+                        st.caption(f"🗓️ Data: {r['data_avaliacao']}")
