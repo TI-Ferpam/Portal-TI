@@ -103,7 +103,7 @@ def carregar_dados():
         df_raw["data_aval_dt"] = pd.to_datetime(df_raw["data_avaliacao"], errors="coerce", dayfirst=True)
 
         # ============================================================
-        # CÁLCULOS RIGOROSOS DE DATAS E SLA
+        # CÁLCULOS RIGOROSOS DE DATAS E SLA (EXIGE AS 3 DATAS)
         # ============================================================
         df_raw["dt_abertura"] = pd.to_datetime(df_raw["data_hora_abertura"], errors="coerce").fillna(
             pd.to_datetime(df_raw["data_inicial"], errors="coerce")
@@ -113,19 +113,20 @@ def carregar_dados():
             pd.to_datetime(df_raw["data_final"], errors="coerce")
         )
 
-        # Minutos totais
+        # Minutos totais, até técnico e de resolução
         df_raw["min_total"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
-        df_raw.loc[df_raw["min_total"] < 0, "min_total"] = None
-
-        # Minutos até atribuição
         df_raw["min_ate_tecnico"] = (df_raw["dt_tecnico"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
-        df_raw.loc[df_raw["min_ate_tecnico"] < 0, "min_ate_tecnico"] = None
-
-        # Minutos de execução do técnico
         df_raw["min_resolucao"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_tecnico"]).dt.total_seconds() / 60.0
-        df_raw.loc[df_raw["min_resolucao"] < 0, "min_resolucao"] = None
 
-        df_raw["sla_valido"] = df_raw["min_total"].notna()
+        # REGRA: Só é SLA válido se TIVER AS 3 DATAS preenchidas e sem tempos negativos
+        df_raw["sla_valido"] = (
+            df_raw["dt_abertura"].notna() &
+            df_raw["dt_tecnico"].notna() &
+            df_raw["dt_conclusao_efetiva"].notna() &
+            (df_raw["min_total"] >= 0) &
+            (df_raw["min_ate_tecnico"] >= 0) &
+            (df_raw["min_resolucao"] >= 0)
+        )
 
         return df_raw
 
@@ -346,7 +347,7 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
         with t3:
             st.metric("🏁 Tempo Total", formatar_tempo(chamado.get("min_total")))
     else:
-        st.info("ℹ️ Chamado em aberto ou sem carimbos de tempo para cálculo de SLA.")
+        st.info("ℹ️ Chamado em aberto ou sem todas as 3 datas registradas para cálculo de SLA.")
 
     st.divider()
     col_a, col_b = st.columns(2)
@@ -589,24 +590,24 @@ if st.session_state.tela == "dashboard":
             st.dataframe(df_filtrado_dash[cols_exibicao], use_container_width=True, hide_index=True)
 
     # ============================================================
-    # TAB: SLAs & MÉDIAS DE TEMPO (FILTRADO PARA MATHEUS E JAIR)
+    # TAB: SLAs & MÉDIAS DE TEMPO (RIGOROSAMENTE OS QUE TÊM AS 3 DATAS)
     # ============================================================
     with tab_sla:
         st.subheader("⏱️ Indicadores Médios de SLA da Equipe")
-        st.caption("Considera exclusivamente os técnicos Matheus Juliati e Jair de Alcantara.")
+        st.caption("Considera apenas chamados com todas as 3 datas preenchidas para Matheus Juliati e Jair de Alcantara.")
 
-        # Filtrar df de SLA apenas para os 2 técnicos permitidos
+        # Filtrar df de SLA apenas para os 2 técnicos permitidos E com SLA válido (3 datas preenchidas)
         df_sla_filtrado = df[
             (df["sla_valido"] == True) & 
             (df["tecnico"].astype(str).str.strip().isin(TECNICOS_PERMITIDOS))
         ].copy()
 
         if df_sla_filtrado.empty:
-            st.warning("⚠️ Nenhum chamado válido encontrado para os técnicos selecionados.")
+            st.warning("⚠️ Nenhum chamado completo (com as 3 datas) encontrado para os técnicos selecionados.")
         else:
-            med_assumir = df_sla_filtrado["min_ate_tecnico"].dropna().mean()
-            med_resolucao = df_sla_filtrado["min_resolucao"].dropna().mean()
-            med_total = df_sla_filtrado["min_total"].dropna().mean()
+            med_assumir = df_sla_filtrado["min_ate_tecnico"].mean()
+            med_resolucao = df_sla_filtrado["min_resolucao"].mean()
+            med_total = df_sla_filtrado["min_total"].mean()
 
             col_sla1, col_sla2, col_sla3 = st.columns(3)
             with col_sla1:
@@ -625,9 +626,9 @@ if st.session_state.tela == "dashboard":
                 sub = df_sla_filtrado[df_sla_filtrado["tecnico"].astype(str).str.strip().str.casefold() == tec.casefold()]
                 
                 if not sub.empty:
-                    m_ass = sub["min_ate_tecnico"].dropna().mean()
-                    m_res = sub["min_resolucao"].dropna().mean()
-                    m_tot = sub["min_total"].dropna().mean()
+                    m_ass = sub["min_ate_tecnico"].mean()
+                    m_res = sub["min_resolucao"].mean()
+                    m_tot = sub["min_total"].mean()
                     qtd = len(sub)
                 else:
                     m_ass, m_res, m_tot = None, None, None
@@ -638,7 +639,7 @@ if st.session_state.tela == "dashboard":
                     "Média até Assumir": formatar_tempo(m_ass),
                     "Média Execução Técnico": formatar_tempo(m_res),
                     "Média Tempo Total": formatar_tempo(m_tot),
-                    "Chamados Finalizados": qtd
+                    "Chamados Finalizados (com 3 datas)": qtd
                 })
 
             df_tec_table = pd.DataFrame(rows_tec)
