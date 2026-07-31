@@ -108,7 +108,7 @@ def carregar_dados():
             pd.to_datetime(df_raw["data_final"], errors="coerce")
         )
 
-        # Checagem estrita dos 3 campos de data preenchidos
+        # Checagem dos 3 campos de data
         df_raw["tem_3_datas"] = (
             df_raw["dt_abertura"].notna() &
             df_raw["dt_tecnico"].notna() &
@@ -596,7 +596,7 @@ if st.session_state.tela == "dashboard":
             st.dataframe(df_filtrado_dash[cols_exibicao], use_container_width=True, hide_index=True)
 
     # ============================================================
-    # TAB: SLAs & MÉDIAS DE TEMPO + SEÇÃO ROADMAPS NO RODAPÉ
+    # TAB: SLAs & MÉDIAS DE TEMPO (GERAL, TÉCNICOS E POR STATUS)
     # ============================================================
     with tab_sla:
         st.subheader("⏱️ Indicadores Médios de SLA da Equipe (Operacional)")
@@ -626,6 +626,7 @@ if st.session_state.tela == "dashboard":
 
             st.divider()
 
+            # 1) TABELA DE MÉDIAS POR TÉCNICO
             st.subheader("👨‍💻 Desempenho de SLA por Técnico (Operacional)")
 
             rows_tec = []
@@ -652,6 +653,38 @@ if st.session_state.tela == "dashboard":
             df_tec_table = pd.DataFrame(rows_tec)
             st.dataframe(df_tec_table, use_container_width=True, hide_index=True)
 
+            st.divider()
+
+            # 2) NOVA TABELA DE MÉDIAS POR STATUS DO CHAMADO
+            st.subheader("📌 Médias de Tempo por Status do Chamado")
+            st.caption("Visão detalhada das médias específicas calculadas para cada status (ex: Aguardando Terceiros, Pendente, etc.) sem alterar o cálculo geral.")
+
+            # Considera todos os chamados válidos com as 3 datas
+            df_status_sla = df[df["sla_valido"] == True].copy()
+            
+            if not df_status_sla.empty:
+                rows_status = []
+                # Obter lista de todos os status únicos presentes nos chamados válidos
+                todos_status = sorted(list(set(df_status_sla["status"].replace("", "Sem Status").unique())), key=str.casefold)
+
+                for st_nome in todos_status:
+                    sub_st = df_status_sla[df_status_sla["status"].replace("", "Sem Status").str.casefold() == st_nome.casefold()]
+                    m_ass_st = sub_st["min_ate_tecnico"].mean()
+                    m_res_st = sub_st["min_resolucao"].mean()
+                    m_tot_st = sub_st["min_total"].mean()
+                    qtd_st = len(sub_st)
+
+                    rows_status.append({
+                        "Status do Chamado": st_nome,
+                        "Média até Assumir": formatar_tempo(m_ass_st),
+                        "Média Execução Técnico": formatar_tempo(m_res_st),
+                        "Média Tempo Total": formatar_tempo(m_tot_st),
+                        "Qtd. Chamados": qtd_st
+                    })
+
+                df_status_table = pd.DataFrame(rows_status)
+                st.dataframe(df_status_table, use_container_width=True, hide_index=True)
+
         st.divider()
 
         # ============================================================
@@ -660,7 +693,6 @@ if st.session_state.tela == "dashboard":
         st.subheader("🗺️ Chamados em Roadmap (>= 5 dias)")
         st.caption("Esta seção exibe apenas os chamados longos que possuem os 3 campos de data obrigatoriamente preenchidos na planilha.")
 
-        # Filtro estrito: Pertencer a Roadmap (>= 5 dias) E ter as 3 datas preenchidas
         df_roadmaps_validos = df[
             (df["eh_roadmap"] == True) & 
             (df["tem_3_datas"] == True)
