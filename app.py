@@ -800,6 +800,9 @@ if st.session_state.tela == "dashboard":
     # ============================================================
     # TAB: FEED DE REVIEWS & FEEDBACK (COM FILTROS DE NOTA E ORDENAÇÃO)
     # ============================================================
+ # ============================================================
+    # TAB: FEED DE REVIEWS & FEEDBACK (COMPATÍVEL COM DARK/LIGHT MODE)
+    # ============================================================
     with tab_reviews:
         st.subheader("💬 Feedbacks e Comentários dos Solicitantes")
         
@@ -852,31 +855,25 @@ if st.session_state.tela == "dashboard":
                 st.warning("Nenhum comentário encontrado com os filtros selecionados.")
             else:
                 for idx, r in df_coments.reset_index(drop=True).iterrows():
-                    with st.container(border=True):
-                        c_top1, c_top2 = st.columns([7, 3])
-                        
-                        with c_top1:
-                            solic = r.get('solicitante', 'Anônimo')
-                            if not solic or solic.casefold() == "nan":
-                                solic = "Solicitante Anônimo"
-                            st.markdown(f"**🎫 Chamado #{r['id_chamado']}** - Solicitante: *{solic}*")
-                            
-                            if pd.notna(r.get("nota_num")):
-                                st.markdown(render_estrelas(r["nota_num"]))
-                        
-                        with c_top2:
-                            dt_str = str(r.get('data_avaliacao', '')).strip()
-                            if not dt_str or dt_str.casefold() == "nan":
-                                if pd.notna(r.get('dt_conclusao_efetiva')):
-                                    dt_str = r['dt_conclusao_efetiva'].strftime("%d/%m/%Y")
-                                else:
-                                    dt_str = "Data N/A"
-                            st.caption(f"🗓️ **Data:** {dt_str}")
+                    solic = r.get('solicitante', 'Anônimo')
+                    if not solic or solic.casefold() == "nan":
+                        solic = "Solicitante Anônimo"
 
-                        st.markdown(f"""
-                        <div style="background-color: rgba(0, 51, 153, 0.05); padding: 12px 16px; border-radius: 8px; border-left: 4px solid {AZUL_FERPAM}; margin-top: 8px; margin-bottom: 8px;">
-                            <i style="font-size: 0.98rem; color: #1e293b;">"{r['comentario_avaliacao']}"</i>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        st.caption(f"🏢 Depto: {r.get('departamento', '-')} | 👨‍💻 Técnico: {r.get('tecnico', '-')}")
+                    dt_str = str(r.get('data_avaliacao', '')).strip()
+                    if not dt_str or dt_str.casefold() == "nan":
+                        if pd.notna(r.get('dt_conclusao_efetiva')):
+                            dt_str = r['dt_conclusao_efetiva'].strftime("%d/%m/%Y")
+                        else:
+                            dt_str = "Data N/A"
+
+                    estrelas_str = render_estrelas(r["nota_num"]) if pd.notna(r.get("nota_num")) else "Sem nota"
+
+                    with st.container(border=True):
+                        # Cabeçalho do Card
+                        st.markdown(f"**🎫 Chamado #{r['id_chamado']}** | 👤 **{solic}**")
+                        st.caption(f"⭐ **Nota:** {estrelas_str}  •  🗓️ **Data:** {dt_str}")
+
+                        # Citação legível tanto no Dark quanto no Light mode
+                        st.chat_message("user").markdown(f"*{r['comentario_avaliacao']}*")
+
+                        st.caption(f"🏢 Depto: **{r.get('departamento', '-')}** | 👨‍💻 Técnico: **{r.get('tecnico', '-')}**")
