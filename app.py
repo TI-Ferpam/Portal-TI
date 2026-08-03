@@ -517,26 +517,28 @@ if st.session_state.tela == "dashboard":
     with tab_op:
         st.caption("⚡ **Filtre por Ano/Mês** ou clique nos gráficos para detalhar a operação!")
 
-        # 1) SELEÇÃO DINÂMICA DE ANO E MÊS
+        # 1) SELEÇÃO DINÂMICA DE ANO E MÊS (INCLUINDO 'TODOS OS ANOS')
         anos_disponiveis = sorted([int(a) for a in df["ano_abertura"].dropna().unique()], reverse=True)
+        opcoes_anos = ["Todos os Anos"] + anos_disponiveis
         
-        if not anos_disponiveis:
-            st.warning("Nenhum registro com data válida foi encontrado.")
-            st.stop()
-
         f_col1, f_col2, f_col3 = st.columns([2, 2, 4])
         with f_col1:
-            ano_sel = st.selectbox("📅 Escolha o Ano", options=anos_disponiveis, index=0)
+            ano_sel = st.selectbox("📅 Escolha o Ano", options=opcoes_anos, index=0)
 
-        # Filtrar meses disponíveis no ano selecionado
-        df_ano = df[df["ano_abertura"] == ano_sel]
+        # Filtrar a base pelo Ano selecionado (ou usar tudo)
+        if ano_sel == "Todos os Anos":
+            df_ano = df.copy()
+        else:
+            df_ano = df[df["ano_abertura"] == ano_sel]
+
+        # Filtrar meses disponíveis conforme a escolha do ano
         meses_nums = sorted([int(m) for m in df_ano["mes_num_abertura"].dropna().unique()])
-        opcoes_meses = ["Todos os Meses"] + [MESES_DIC[m] for m in meses_nums]
+        opcoes_meses = ["Todos os Meses"] + [MESES_DIC[m] for m in meses_nums if m in MESES_DIC]
 
         with f_col2:
             mes_sel = st.selectbox("🗓️ Escolha o Mês", options=opcoes_meses, index=0)
 
-        # Aplicar filtro do Mês/Ano na base da aba Operação
+        # Aplicar filtro do Mês na base da aba Operação
         df_op_base = df_ano.copy()
         if mes_sel != "Todos os Meses":
             df_op_base = df_op_base[df_op_base["mes_nome_abertura"] == mes_sel]
@@ -626,6 +628,8 @@ if st.session_state.tela == "dashboard":
         tipo_filtro = st.session_state.filtro_dash_tipo
         valor_filtro = st.session_state.filtro_dash_valor
 
+        rotulo_periodo = f"{mes_sel} / {ano_sel}" if ano_sel != "Todos os Anos" else f"{mes_sel} (Todos os Anos)"
+
         if tipo_filtro and valor_filtro:
             if tipo_filtro == "status_grupo":
                 df_filtrado_dash = df_filtrado_dash[df_filtrado_dash["grupo_status"] == valor_filtro]
@@ -634,12 +638,12 @@ if st.session_state.tela == "dashboard":
 
             col_tit, col_btn = st.columns([8, 2])
             with col_tit:
-                st.subheader(f"🎯 Chamados de {mes_sel}/{ano_sel} Filtrados por **{tipo_filtro.capitalize()} = '{valor_filtro}'**")
+                st.subheader(f"🎯 Chamados de {rotulo_periodo} Filtrados por **{tipo_filtro.capitalize()} = '{valor_filtro}'**")
                 st.caption(f"Mostrando {len(df_filtrado_dash)} de {len(df_op_base)} chamados do período.")
             with col_btn:
                 st.button("❌ Limpar Filtro Clique", on_click=limpar_filtro_dash, type="primary", use_container_width=True, key="btn_clear_op")
         else:
-            st.subheader(f"📋 Lista de Chamados ({mes_sel} / {ano_sel}) - {len(df_filtrado_dash)} chamados")
+            st.subheader(f"📋 Lista de Chamados ({rotulo_periodo}) - {len(df_filtrado_dash)} chamados")
 
         if df_filtrado_dash.empty:
             st.warning("Nenhum chamado encontrado para este período/filtro.")
