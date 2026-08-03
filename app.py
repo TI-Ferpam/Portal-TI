@@ -17,6 +17,12 @@ st.set_page_config(
 TECNICOS_PERMITIDOS = ["Matheus Juliati", "Jair de Alcantara"]
 LIMITE_ROADMAP_MINUTOS = 5 * 24 * 60  # 5 dias em minutos = 7200 min
 
+MESES_DIC = {
+    1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
+    5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
+    9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
+}
+
 # ============================================================
 # FUNÇÃO AUXILIAR DE FORMATAÇÃO DE TEMPO
 # ============================================================
@@ -65,6 +71,9 @@ def carregar_dados():
             df_empty["sla_valido"] = pd.Series(dtype=bool)
             df_empty["eh_roadmap"] = pd.Series(dtype=bool)
             df_empty["tem_3_datas"] = pd.Series(dtype=bool)
+            df_empty["ano_abertura"] = pd.Series(dtype=float)
+            df_empty["mes_num_abertura"] = pd.Series(dtype=float)
+            df_empty["mes_nome_abertura"] = pd.Series(dtype=str)
             return df_empty
 
         # Normalização de colunas
@@ -108,6 +117,11 @@ def carregar_dados():
             pd.to_datetime(df_raw["data_final"], errors="coerce")
         )
 
+        # Campos auxiliares para filtro de Mês/Ano
+        df_raw["ano_abertura"] = df_raw["dt_abertura"].dt.year
+        df_raw["mes_num_abertura"] = df_raw["dt_abertura"].dt.month
+        df_raw["mes_nome_abertura"] = df_raw["mes_num_abertura"].map(MESES_DIC)
+
         # Checagem dos 3 campos de data
         df_raw["tem_3_datas"] = (
             df_raw["dt_abertura"].notna() &
@@ -141,6 +155,9 @@ def carregar_dados():
         df_err["sla_valido"] = pd.Series(dtype=bool)
         df_err["eh_roadmap"] = pd.Series(dtype=bool)
         df_err["tem_3_datas"] = pd.Series(dtype=bool)
+        df_err["ano_abertura"] = pd.Series(dtype=float)
+        df_err["mes_num_abertura"] = pd.Series(dtype=float)
+        df_err["mes_nome_abertura"] = pd.Series(dtype=str)
         return df_err
 
 df = carregar_dados()
@@ -494,10 +511,41 @@ if st.session_state.tela == "dashboard":
         "💬 Feed de Reviews & Feedback"
     ])
 
+    # ============================================================
+    # TAB: OPERAÇÃO & VOLUMETRIA (COM FILTRO DE ANO E MÊS)
+    # ============================================================
     with tab_op:
-        st.caption("⚡ **Interativo**: Clique nos botões dos cartões ou nas fatias/barras dos gráficos para filtrar!")
-        total_chamados = len(df)
-        df_dash = df.copy()
+        st.caption("⚡ **Filtre por Ano/Mês** ou clique nos gráficos para detalhar a operação!")
+
+        # 1) SELEÇÃO DINÂMICA DE ANO E MÊS
+        anos_disponiveis = sorted([int(a) for a in df["ano_abertura"].dropna().unique()], reverse=True)
+        
+        if not anos_disponiveis:
+            st.warning("Nenhum registro com data válida foi encontrado.")
+            st.stop()
+
+        f_col1, f_col2, f_col3 = st.columns([2, 2, 4])
+        with f_col1:
+            ano_sel = st.selectbox("📅 Escolha o Ano", options=anos_disponiveis, index=0)
+
+        # Filtrar meses disponíveis no ano selecionado
+        df_ano = df[df["ano_abertura"] == ano_sel]
+        meses_nums = sorted([int(m) for m in df_ano["mes_num_abertura"].dropna().unique()])
+        opcoes_meses = ["Todos os Meses"] + [MESES_DIC[m] for m in meses_nums]
+
+        with f_col2:
+            mes_sel = st.selectbox("🗓️ Escolha o Mês", options=opcoes_meses, index=0)
+
+        # Aplicar filtro do Mês/Ano na base da aba Operação
+        df_op_base = df_ano.copy()
+        if mes_sel != "Todos os Meses":
+            df_op_base = df_op_base[df_op_base["mes_nome_abertura"] == mes_sel]
+
+        st.divider()
+
+        # 2) METRICAS E CARDS
+        total_chamados = len(df_op_base)
+        df_dash = df_op_base.copy()
         df_dash["grupo_status"] = df_dash["status"].apply(classificar_status_grupo)
         concluidos = len(df_dash[df_dash["grupo_status"] == "Concluídos"])
         em_andamento = len(df_dash[df_dash["grupo_status"] == "Em Andamento"])
@@ -532,10 +580,12 @@ if st.session_state.tela == "dashboard":
             st.metric("📈 Taxa Resolução", f"{taxa_conclusao:.1f}%")
 
         st.divider()
+
+        # 3) GRÁFICOS INTERATIVOS
         g1, g2 = st.columns(2)
         with g1:
             st.subheader("🍩 Distribuição por Status")
-            s_counts = df["status"].replace("", "Aberto / Sem Status").value_counts().reset_index()
+            s_counts = df_op_base["status"].replace("", "Aberto / Sem Status").value_counts().reset_index()
             s_counts.columns = ["Status", "Quantidade"]
             fig_status = px.pie(s_counts, names="Status", values="Quantidade", hole=0.45, custom_data=["Status"])
             evt_status = st.plotly_chart(aplicar_layout_plotly(fig_status), use_container_width=True, on_select="rerun", selection_mode="points", key="chart_status")
@@ -543,7 +593,7 @@ if st.session_state.tela == "dashboard":
 
         with g2:
             st.subheader("⚠️ Chamados por Prioridade")
-            df_prio = df["prioridade"].replace("", "Não Informado").value_counts().reset_index()
+            df_prio = df_op_base["prioridade"].replace("", "Não Informado").value_counts().reset_index()
             df_prio.columns = ["Prioridade", "Quantidade"]
             fig_prio = px.bar(df_prio, x="Prioridade", y="Quantidade", text="Quantidade", color="Prioridade", custom_data=["Prioridade"])
             fig_prio.update_layout(showlegend=False)
@@ -554,7 +604,7 @@ if st.session_state.tela == "dashboard":
         g3, g4 = st.columns(2)
         with g3:
             st.subheader("🏢 Demandas por Departamento")
-            df_dep = df["departamento"].replace("", "Outros").value_counts().head(10).reset_index()
+            df_dep = df_op_base["departamento"].replace("", "Outros").value_counts().head(10).reset_index()
             df_dep.columns = ["Departamento", "Quantidade"]
             fig_dep = px.bar(df_dep, y="Departamento", x="Quantidade", orientation="h", text="Quantidade", custom_data=["Departamento"])
             fig_dep.update_layout(yaxis=dict(autorange="reversed"))
@@ -563,13 +613,15 @@ if st.session_state.tela == "dashboard":
 
         with g4:
             st.subheader("👨‍💻 Atendimentos por Técnico")
-            df_tec = df["tecnico"].replace("", "Não Atribuído").value_counts().head(10).reset_index()
+            df_tec = df_op_base["tecnico"].replace("", "Não Atribuído").value_counts().head(10).reset_index()
             df_tec.columns = ["Técnico", "Quantidade"]
             fig_tec = px.bar(df_tec, x="Técnico", y="Quantidade", text="Quantidade", custom_data=["Técnico"])
             evt_tec = st.plotly_chart(aplicar_layout_plotly(fig_tec), use_container_width=True, on_select="rerun", selection_mode="points", key="chart_tec")
             processar_clique_grafico(evt_tec, "tecnico")
 
         st.divider()
+
+        # 4) TABELA DE CHAMADOS DO MÊS/PERÍODO
         df_filtrado_dash = df_dash.copy()
         tipo_filtro = st.session_state.filtro_dash_tipo
         valor_filtro = st.session_state.filtro_dash_valor
@@ -582,27 +634,26 @@ if st.session_state.tela == "dashboard":
 
             col_tit, col_btn = st.columns([8, 2])
             with col_tit:
-                st.subheader(f"🎯 Chamados Filtrados por **{tipo_filtro.capitalize()} = '{valor_filtro}'**")
-                st.caption(f"Mostrando {len(df_filtrado_dash)} de {len(df)} chamados totais.")
+                st.subheader(f"🎯 Chamados de {mes_sel}/{ano_sel} Filtrados por **{tipo_filtro.capitalize()} = '{valor_filtro}'**")
+                st.caption(f"Mostrando {len(df_filtrado_dash)} de {len(df_op_base)} chamados do período.")
             with col_btn:
-                st.button("❌ Limpar Filtro", on_click=limpar_filtro_dash, type="primary", use_container_width=True, key="btn_clear_op")
+                st.button("❌ Limpar Filtro Clique", on_click=limpar_filtro_dash, type="primary", use_container_width=True, key="btn_clear_op")
         else:
-            st.subheader(f"📋 Lista Completa de Chamados ({len(df_filtrado_dash)} chamados)")
+            st.subheader(f"📋 Lista de Chamados ({mes_sel} / {ano_sel}) - {len(df_filtrado_dash)} chamados")
 
         if df_filtrado_dash.empty:
-            st.warning("Nenhum chamado encontrado para este filtro.")
+            st.warning("Nenhum chamado encontrado para este período/filtro.")
         else:
-            cols_exibicao = ["id_chamado", "titulo", "solicitante", "departamento", "tecnico", "status", "prioridade"]
+            cols_exibicao = ["id_chamado", "dt_abertura", "titulo", "solicitante", "departamento", "tecnico", "status", "prioridade"]
             st.dataframe(df_filtrado_dash[cols_exibicao], use_container_width=True, hide_index=True)
 
     # ============================================================
-    # TAB: SLAs & MÉDIAS DE TEMPO (GERAL, TÉCNICOS E POR STATUS)
+    # TAB: SLAs & MÉDIAS DE TEMPO
     # ============================================================
     with tab_sla:
         st.subheader("⏱️ Indicadores Médios de SLA da Equipe (Operacional)")
         st.caption("Exclui chamados de longo prazo (>= 5 dias) para manter a precisão das solicitações do dia a dia.")
 
-        # Excluir Roadmaps da média do SLA tradicional
         df_sla_filtrado = df[
             (df["sla_valido"] == True) & 
             (df["tecnico"].astype(str).str.strip().isin(TECNICOS_PERMITIDOS)) &
@@ -655,16 +706,14 @@ if st.session_state.tela == "dashboard":
 
             st.divider()
 
-            # 2) NOVA TABELA DE MÉDIAS POR STATUS DO CHAMADO
+            # 2) MÉDIAS POR STATUS DO CHAMADO
             st.subheader("📌 Médias de Tempo por Status do Chamado")
-            st.caption("Visão detalhada das médias específicas calculadas para cada status (ex: Aguardando Terceiros, Pendente, etc.) sem alterar o cálculo geral.")
+            st.caption("Visão detalhada das médias específicas calculadas para cada status sem alterar o cálculo geral.")
 
-            # Considera todos os chamados válidos com as 3 datas
             df_status_sla = df[df["sla_valido"] == True].copy()
             
             if not df_status_sla.empty:
                 rows_status = []
-                # Obter lista de todos os status únicos presentes nos chamados válidos
                 todos_status = sorted(list(set(df_status_sla["status"].replace("", "Sem Status").unique())), key=str.casefold)
 
                 for st_nome in todos_status:
@@ -688,7 +737,7 @@ if st.session_state.tela == "dashboard":
         st.divider()
 
         # ============================================================
-        # SEÇÃO INFERIOR: ROADMAPS (SÓ APARECE SE AS 3 DATAS ESTIVEREM PREENCHIDAS)
+        # SEÇÃO INFERIOR: ROADMAPS
         # ============================================================
         st.subheader("🗺️ Chamados em Roadmap (>= 5 dias)")
         st.caption("Esta seção exibe apenas os chamados longos que possuem os 3 campos de data obrigatoriamente preenchidos na planilha.")
