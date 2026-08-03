@@ -74,6 +74,7 @@ def carregar_dados():
             df_empty["ano_abertura"] = pd.Series(dtype=float)
             df_empty["mes_num_abertura"] = pd.Series(dtype=float)
             df_empty["mes_nome_abertura"] = pd.Series(dtype=str)
+            df_empty["dt_aval_parsed"] = pd.Series(dtype="datetime64[ns]")
             return df_empty
 
         # Normalização de colunas
@@ -116,6 +117,9 @@ def carregar_dados():
         df_raw["dt_conclusao_efetiva"] = pd.to_datetime(df_raw["data_conclusao"], errors="coerce").fillna(
             pd.to_datetime(df_raw["data_final"], errors="coerce")
         )
+        
+        # Data de avaliação formatada para ordenação
+        df_raw["dt_aval_parsed"] = pd.to_datetime(df_raw["data_avaliacao"], errors="coerce").fillna(df_raw["dt_conclusao_efetiva"])
 
         # Campos auxiliares para filtro de Mês/Ano
         df_raw["ano_abertura"] = df_raw["dt_abertura"].dt.year
@@ -158,6 +162,7 @@ def carregar_dados():
         df_err["ano_abertura"] = pd.Series(dtype=float)
         df_err["mes_num_abertura"] = pd.Series(dtype=float)
         df_err["mes_nome_abertura"] = pd.Series(dtype=str)
+        df_err["dt_aval_parsed"] = pd.Series(dtype="datetime64[ns]")
         return df_err
 
 df = carregar_dados()
@@ -793,20 +798,85 @@ if st.session_state.tela == "dashboard":
             st.plotly_chart(aplicar_layout_plotly(fig_dist), use_container_width=True)
 
     # ============================================================
-    # TAB: FEED DE REVIEWS & FEEDBACK
+    # TAB: FEED DE REVIEWS & FEEDBACK (COM FILTROS DE NOTA E ORDENAÇÃO)
     # ============================================================
     with tab_reviews:
         st.subheader("💬 Feedbacks e Comentários dos Solicitantes")
-        df_coments = df[df["comentario_avaliacao"].notna() & (df["comentario_avaliacao"].astype(str).str.strip() != "") & (df["comentario_avaliacao"].astype(str).str.strip().str.casefold() != "nan")].copy()
+        
+        # Filtrar chamados que possuem comentários válidos
+        df_coments = df[
+            df["comentario_avaliacao"].notna() & 
+            (df["comentario_avaliacao"].astype(str).str.strip() != "") & 
+            (df["comentario_avaliacao"].astype(str).str.strip().str.casefold() != "nan")
+        ].copy()
 
         if df_coments.empty:
-            st.info("Nenhum comentário registrado nas avaliações.")
+            st.info("Nenhum comentário por escrito registrado nas avaliações até o momento.")
         else:
-            for _, r in df_coments.iterrows():
-                with st.container(border=True):
-                    st.markdown(f"**Chamado #{r['id_chamado']}** - Solicitante: *{r.get('solicitante', 'Anônimo')}*")
-                    if pd.notna(r.get("nota_num")):
-                        st.markdown(render_estrelas(r["nota_num"]))
-                    st.write(f'"{r["comentario_avaliacao"]}"')
-                    if pd.notna(r.get("data_avaliacao")):
-                        st.caption(f"🗓️ Data: {r['data_avaliacao']}")
+            # CONTROLES DE FILTRO E ORDENAÇÃO
+            rf1, rf2, rf3 = st.columns([2, 2, 3])
+            
+            with rf1:
+                filtro_nota = st.selectbox(
+                    "⭐ Filtrar por Nota",
+                    options=["Todas as Notas", "5 Estrelas", "4 Estrelas", "3 Estrelas", "2 Estrelas", "1 Estrela"]
+                )
+            
+            with rf2:
+                ordem_data = st.selectbox(
+                    "📅 Ordenar por Data",
+                    options=["Mais recentes primeiro", "Mais antigas primeiro"]
+                )
+                
+            with rf3:
+                termo_busca = st.text_input("🔍 Buscar no comentário", placeholder="Ex.: rápido, bom, impressora...")
+
+            # APLICAÇÃO DOS FILTROS
+            if filtro_nota != "Todas as Notas":
+                nota_alvo = int(filtro_nota.split()[0])
+                df_coments = df_coments[df_coments["nota_num"] == nota_alvo]
+
+            if termo_busca.strip():
+                df_coments = df_coments[
+                    df_coments["comentario_avaliacao"].astype(str).str.contains(termo_busca.strip(), case=False, na=False)
+                ]
+
+            # ORDENAÇÃO
+            ascendente = True if ordem_data == "Mais antigas primeiro" else False
+            df_coments = df_coments.sort_values(by="dt_aval_parsed", ascending=ascendente, na_position="last")
+
+            st.caption(f"Exibindo **{len(df_coments)}** comentário(s):")
+            st.divider()
+
+            if df_coments.empty:
+                st.warning("Nenhum comentário encontrado com os filtros selecionados.")
+            else:
+                for idx, r in df_coments.reset_index(drop=True).iterrows():
+                    with st.container(border=True):
+                        c_top1, c_top2 = st.columns([7, 3])
+                        
+                        with c_top1:
+                            solic = r.get('solicitante', 'Anônimo')
+                            if not solic or solic.casefold() == "nan":
+                                solic = "Solicitante Anônimo"
+                            st.markdown(f"**🎫 Chamado #{r['id_chamado']}** - Solicitante: *{solic}*")
+                            
+                            if pd.notna(r.get("nota_num")):
+                                st.markdown(render_estrelas(r["nota_num"]))
+                        
+                        with c_top2:
+                            dt_str = str(r.get('data_avaliacao', '')).strip()
+                            if not dt_str or dt_str.casefold() == "nan":
+                                if pd.notna(r.get('dt_conclusao_efetiva')):
+                                    dt_str = r['dt_conclusao_efetiva'].strftime("%d/%m/%Y")
+                                else:
+                                    dt_str = "Data N/A"
+                            st.caption(f"🗓️ **Data:** {dt_str}")
+
+                        st.markdown(f"""
+                        <div style="background-color: rgba(0, 51, 153, 0.05); padding: 12px 16px; border-radius: 8px; border-left: 4px solid {AZUL_FERPAM}; margin-top: 8px; margin-bottom: 8px;">
+                            <i style="font-size: 0.98rem; color: #1e293b;">"{r['comentario_avaliacao']}"</i>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        st.caption(f"🏢 Depto: {r.get('departamento', '-')} | 👨‍💻 Técnico: {r.get('tecnico', '-')}")
