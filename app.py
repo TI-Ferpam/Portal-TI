@@ -106,9 +106,9 @@ def carregar_dados():
             df_raw[col] = df_raw[col].fillna("").astype(str).str.strip()
             df_raw[col] = df_raw[col].replace({"nan": "", "None": "", "null": "", "<NA>": ""})
 
-        # --- FILTRO RIGOROSO: REMOVE QUALQUER MATEUS / MATHEUS NUNES ---
-        padrao_matheus = r"mat?heus.*nunes|mat?heus"
-        df_raw = df_raw[~df_raw["tecnico"].str.contains(padrao_matheus, case=False, regex=True, na=False)]
+        # --- FILTRO APENAS DO MATEUS NUNES / MATHEUS NUNES ---
+        padrao_nunes = r"mat[h]?eus\s+nunes"
+        df_raw = df_raw[~df_raw["tecnico"].str.contains(padrao_nunes, case=False, regex=True, na=False)]
 
         nota_limpa = df_raw["nota_atendimento"].astype(str).str.replace(",", ".", regex=False).str.strip()
         df_raw["nota_num"] = pd.to_numeric(nota_limpa, errors="coerce")
