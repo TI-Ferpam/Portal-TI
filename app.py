@@ -109,46 +109,37 @@ def carregar_dados():
         nota_limpa = df_raw["nota_atendimento"].astype(str).str.replace(",", ".", regex=False).str.strip()
         df_raw["nota_num"] = pd.to_numeric(nota_limpa, errors="coerce")
 
-        # Tratamento de Datas
-        df_raw["dt_abertura"] = pd.to_datetime(df_raw["data_hora_abertura"], errors="coerce").fillna(
-            pd.to_datetime(df_raw["data_inicial"], errors="coerce")
+        # Tratamento flexível de Datas (dayfirst=True para formato brasileiro DD/MM/YYYY)
+        df_raw["dt_abertura"] = pd.to_datetime(df_raw["data_hora_abertura"], dayfirst=True, errors="coerce").fillna(
+            pd.to_datetime(df_raw["data_inicial"], dayfirst=True, errors="coerce")
         )
-        df_raw["dt_tecnico"] = pd.to_datetime(df_raw["data_tecnico"], errors="coerce")
-        df_raw["dt_conclusao_efetiva"] = pd.to_datetime(df_raw["data_conclusao"], errors="coerce").fillna(
-            pd.to_datetime(df_raw["data_final"], errors="coerce")
+        df_raw["dt_tecnico"] = pd.to_datetime(df_raw["data_tecnico"], dayfirst=True, errors="coerce")
+        df_raw["dt_conclusao_efetiva"] = pd.to_datetime(df_raw["data_conclusao"], dayfirst=True, errors="coerce").fillna(
+            pd.to_datetime(df_raw["data_final"], dayfirst=True, errors="coerce")
         )
         
         # Data de avaliação formatada para ordenação
-        df_raw["dt_aval_parsed"] = pd.to_datetime(df_raw["data_avaliacao"], errors="coerce").fillna(df_raw["dt_conclusao_efetiva"])
+        df_raw["dt_aval_parsed"] = pd.to_datetime(df_raw["data_avaliacao"], dayfirst=True, errors="coerce").fillna(df_raw["dt_conclusao_efetiva"])
 
         # Campos auxiliares para filtro de Mês/Ano
         df_raw["ano_abertura"] = df_raw["dt_abertura"].dt.year
         df_raw["mes_num_abertura"] = df_raw["dt_abertura"].dt.month
         df_raw["mes_nome_abertura"] = df_raw["mes_num_abertura"].map(MESES_DIC)
 
-        # Checagem dos 3 campos de data
-        df_raw["tem_3_datas"] = (
-            df_raw["dt_abertura"].notna() &
-            df_raw["dt_tecnico"].notna() &
-            df_raw["dt_conclusao_efetiva"].notna()
-        )
-
+        # Checagem flexível de datas
         df_raw["min_total"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
         df_raw["min_ate_tecnico"] = (df_raw["dt_tecnico"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
         df_raw["min_resolucao"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_tecnico"]).dt.total_seconds() / 60.0
 
+        # Regra de SLA Válido: Ter ao menos abertura e conclusão coerentes (tempo total >= 0)
         df_raw["sla_valido"] = (
-            df_raw["tem_3_datas"] &
-            (df_raw["min_total"] >= 0) &
-            (df_raw["min_ate_tecnico"] >= 0) &
-            (df_raw["min_resolucao"] >= 0)
+            df_raw["dt_abertura"].notna() &
+            df_raw["dt_conclusao_efetiva"].notna() &
+            (df_raw["min_total"] >= 0)
         )
 
         # MARCAÇÃO DE ROADMAP (>= 5 dias)
-        df_raw["eh_roadmap"] = (
-            (df_raw["min_total"] >= LIMITE_ROADMAP_MINUTOS) | 
-            (df_raw["min_resolucao"] >= LIMITE_ROADMAP_MINUTOS)
-        )
+        df_raw["eh_roadmap"] = (df_raw["min_total"] >= LIMITE_ROADMAP_MINUTOS)
 
         return df_raw
 
@@ -375,7 +366,7 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
         with t3:
             st.metric("🏁 Tempo Total", formatar_tempo(chamado.get("min_total")))
     else:
-        st.info("ℹ️ Chamado em aberto ou sem todas as 3 datas registradas para cálculo de SLA.")
+        st.info("ℹ️ Chamado em aberto ou sem todas as datas registradas para cálculo de SLA.")
 
     st.divider()
     col_a, col_b = st.columns(2)
@@ -517,40 +508,36 @@ if st.session_state.tela == "dashboard":
     ])
 
     # ============================================================
-    # TAB: OPERAÇÃO & VOLUMETRIA (COM FILTRO DE ANO E MÊS)
+    # FILTRO GLOBAL DE PERÍODO (COMPARTILHADO ENTRE ABAS)
+    # ============================================================
+    anos_disponiveis = sorted([int(a) for a in df["ano_abertura"].dropna().unique()], reverse=True)
+    opcoes_anos = ["Todos os Anos"] + anos_disponiveis
+    
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🗓️ Filtro de Período Global")
+    ano_sel = st.sidebar.selectbox("📅 Escolha o Ano", options=opcoes_anos, index=0)
+
+    if ano_sel == "Todos os Anos":
+        df_ano = df.copy()
+    else:
+        df_ano = df[df["ano_abertura"] == ano_sel]
+
+    meses_nums = sorted([int(m) for m in df_ano["mes_num_abertura"].dropna().unique()])
+    opcoes_meses = ["Todos os Meses"] + [MESES_DIC[m] for m in meses_nums if m in MESES_DIC]
+
+    mes_sel = st.sidebar.selectbox("🗓️ Escolha o Mês", options=opcoes_meses, index=0)
+
+    df_op_base = df_ano.copy()
+    if mes_sel != "Todos os Meses":
+        df_op_base = df_op_base[df_op_base["mes_nome_abertura"] == mes_sel]
+
+    # ============================================================
+    # TAB: OPERAÇÃO & VOLUMETRIA
     # ============================================================
     with tab_op:
-        st.caption("⚡ **Filtre por Ano/Mês** ou clique nos gráficos para detalhar a operação!")
+        st.caption(f"⚡ Exibindo dados do período: **{mes_sel} / {ano_sel}**")
 
-        # 1) SELEÇÃO DINÂMICA DE ANO E MÊS (INCLUINDO 'TODOS OS ANOS')
-        anos_disponiveis = sorted([int(a) for a in df["ano_abertura"].dropna().unique()], reverse=True)
-        opcoes_anos = ["Todos os Anos"] + anos_disponiveis
-        
-        f_col1, f_col2, f_col3 = st.columns([2, 2, 4])
-        with f_col1:
-            ano_sel = st.selectbox("📅 Escolha o Ano", options=opcoes_anos, index=0)
-
-        # Filtrar a base pelo Ano selecionado (ou usar tudo)
-        if ano_sel == "Todos os Anos":
-            df_ano = df.copy()
-        else:
-            df_ano = df[df["ano_abertura"] == ano_sel]
-
-        # Filtrar meses disponíveis conforme a escolha do ano
-        meses_nums = sorted([int(m) for m in df_ano["mes_num_abertura"].dropna().unique()])
-        opcoes_meses = ["Todos os Meses"] + [MESES_DIC[m] for m in meses_nums if m in MESES_DIC]
-
-        with f_col2:
-            mes_sel = st.selectbox("🗓️ Escolha o Mês", options=opcoes_meses, index=0)
-
-        # Aplicar filtro do Mês na base da aba Operação
-        df_op_base = df_ano.copy()
-        if mes_sel != "Todos os Meses":
-            df_op_base = df_op_base[df_op_base["mes_nome_abertura"] == mes_sel]
-
-        st.divider()
-
-        # 2) METRICAS E CARDS
+        # METRICAS E CARDS
         total_chamados = len(df_op_base)
         df_dash = df_op_base.copy()
         df_dash["grupo_status"] = df_dash["status"].apply(classificar_status_grupo)
@@ -588,7 +575,7 @@ if st.session_state.tela == "dashboard":
 
         st.divider()
 
-        # 3) GRÁFICOS INTERATIVOS
+        # GRÁFICOS INTERATIVOS
         g1, g2 = st.columns(2)
         with g1:
             st.subheader("🍩 Distribuição por Status")
@@ -628,7 +615,7 @@ if st.session_state.tela == "dashboard":
 
         st.divider()
 
-        # 4) TABELA DE CHAMADOS DO MÊS/PERÍODO
+        # TABELA DE CHAMADOS
         df_filtrado_dash = df_dash.copy()
         tipo_filtro = st.session_state.filtro_dash_tipo
         valor_filtro = st.session_state.filtro_dash_valor
@@ -646,7 +633,6 @@ if st.session_state.tela == "dashboard":
         else:
             st.caption(f"Exibindo todos os {len(df_filtrado_dash)} chamados do período selecionado ({rotulo_periodo}).")
 
-        # Exibição da tabela final da aba Operação
         colunas_exibir = [
             "id_chamado", "status", "solicitante", "titulo", 
             "departamento", "tecnico", "prioridade", "data_hora_abertura"
@@ -660,30 +646,41 @@ if st.session_state.tela == "dashboard":
         )
 
     # ============================================================
-    # TAB: SLAs & MÉDIAS DE TEMPO
+    # TAB: SLAs & MÉDIAS DE TEMPO (CORRIGIDA E ROBUSTA)
     # ============================================================
     with tab_sla:
-        st.caption("⏱️ Indicadores de tempo computados apenas para chamados com todas as datas preenchidas.")
+        st.caption("⏱️ Indicadores de tempo calculados com base nos chamados finalizados do período.")
         
+        # Filtra chamados válidos (tem data de abertura e conclusão válidas)
         df_sla = df_op_base[df_op_base["sla_valido"] == True].copy()
         
-        if df_sla.empty:
-            st.warning("Nenhum chamado no período possui as datas necessárias para o cálculo do SLA.")
+        # Opção para o usuário ignorar ou não chamados longos (Roadmap > 5 dias)
+        ocultar_roadmap = st.checkbox("🚫 Ocultar Projetos/Roadmap (> 5 dias) dos cálculos de média", value=False)
+        
+        if ocultar_roadmap:
+            df_sla_trabalhado = df_sla[df_sla["eh_roadmap"] == False]
         else:
-            # Exclui chamados classificados como Roadmap dos tempos de SLA diário
-            df_sla_normal = df_sla[df_sla["eh_roadmap"] == False]
-            
+            df_sla_trabalhado = df_sla.copy()
+
+        if df_sla_trabalhado.empty:
+            st.warning("⚠️ Nenhum chamado concluído foi encontrado para os critérios de tempo no período selecionado.")
+        else:
             t1, t2, t3, t4 = st.columns(4)
             with t1:
-                st.metric("Chamados com SLA Válido", len(df_sla_normal))
+                st.metric("Chamados com SLA Válido", len(df_sla_trabalhado))
             with t2:
-                media_atencao = df_sla_normal["min_ate_tecnico"].mean()
+                # Média até o técnico assumir (ignora registros sem dt_tecnico)
+                df_ate_tec = df_sla_trabalhado[df_sla_trabalhado["min_ate_tecnico"].notna() & (df_sla_trabalhado["min_ate_tecnico"] >= 0)]
+                media_atencao = df_ate_tec["min_ate_tecnico"].mean() if not df_ate_tec.empty else None
                 st.metric("⏳ Média - Início do Atendimento", formatar_tempo(media_atencao))
             with t3:
-                media_resolucao = df_sla_normal["min_resolucao"].mean()
+                # Média do tempo de resolução técnica
+                df_res = df_sla_trabalhado[df_sla_trabalhado["min_resolucao"].notna() & (df_sla_trabalhado["min_resolucao"] >= 0)]
+                media_resolucao = df_res["min_resolucao"].mean() if not df_res.empty else None
                 st.metric("🔧 Média - Tempo de Execução", formatar_tempo(media_resolucao))
             with t4:
-                media_total = df_sla_normal["min_total"].mean()
+                # Média do tempo total
+                media_total = df_sla_trabalhado["min_total"].mean()
                 st.metric("🏁 Média - Tempo Total", formatar_tempo(media_total))
 
             st.divider()
@@ -691,29 +688,33 @@ if st.session_state.tela == "dashboard":
             col_sla1, col_sla2 = st.columns(2)
             with col_sla1:
                 st.subheader("👨‍💻 Tempo Médio Total por Técnico")
-                df_tec_sla = df_sla_normal.groupby("tecnico")["min_total"].mean().reset_index()
-                df_tec_sla["tempo_formatado"] = df_tec_sla["min_total"].apply(formatar_tempo)
-                
-                fig_tec_sla = px.bar(
-                    df_tec_sla, x="tecnico", y="min_total",
-                    text="tempo_formatado", color="min_total",
-                    labels={"min_total": "Minutos", "tecnico": "Técnico"}
-                )
-                fig_tec_sla.update_layout(showlegend=False)
-                st.plotly_chart(aplicar_layout_plotly(fig_tec_sla), use_container_width=True)
+                df_tec_sla = df_sla_trabalhado[df_sla_trabalhado["tecnico"] != ""].groupby("tecnico")["min_total"].mean().reset_index()
+                if not df_tec_sla.empty:
+                    df_tec_sla["tempo_formatado"] = df_tec_sla["min_total"].apply(formatar_tempo)
+                    fig_tec_sla = px.bar(
+                        df_tec_sla, x="tecnico", y="min_total",
+                        text="tempo_formatado", color="min_total",
+                        labels={"min_total": "Minutos", "tecnico": "Técnico"}
+                    )
+                    fig_tec_sla.update_layout(showlegend=False)
+                    st.plotly_chart(aplicar_layout_plotly(fig_tec_sla), use_container_width=True)
+                else:
+                    st.info("Sem dados de técnicos para os chamados deste período.")
 
             with col_sla2:
-                st.subheader("🏢 Tempo Médio de Resolução por Departamento")
-                df_dep_sla = df_sla_normal.groupby("departamento")["min_resolucao"].mean().reset_index()
-                df_dep_sla["tempo_formatado"] = df_dep_sla["min_resolucao"].apply(formatar_tempo)
-                
-                fig_dep_sla = px.bar(
-                    df_dep_sla, x="min_resolucao", y="departamento",
-                    orientation="h", text="tempo_formatado",
-                    labels={"min_resolucao": "Minutos", "departamento": "Departamento"}
-                )
-                fig_dep_sla.update_layout(yaxis=dict(autorange="reversed"))
-                st.plotly_chart(aplicar_layout_plotly(fig_dep_sla), use_container_width=True)
+                st.subheader("🏢 Tempo Médio por Departamento")
+                df_dep_sla = df_sla_trabalhado[df_sla_trabalhado["departamento"] != ""].groupby("departamento")["min_total"].mean().reset_index()
+                if not df_dep_sla.empty:
+                    df_dep_sla["tempo_formatado"] = df_dep_sla["min_total"].apply(formatar_tempo)
+                    fig_dep_sla = px.bar(
+                        df_dep_sla, x="min_total", y="departamento",
+                        orientation="h", text="tempo_formatado",
+                        labels={"min_total": "Minutos", "departamento": "Departamento"}
+                    )
+                    fig_dep_sla.update_layout(yaxis=dict(autorange="reversed"))
+                    st.plotly_chart(aplicar_layout_plotly(fig_dep_sla), use_container_width=True)
+                else:
+                    st.info("Sem dados de departamentos para os chamados deste período.")
 
     # ============================================================
     # TAB: SATISFAÇÃO & NOTAS (CSAT)
@@ -757,16 +758,19 @@ if st.session_state.tela == "dashboard":
 
             with col_c2:
                 st.subheader("👨‍💻 Nota Média por Técnico")
-                df_tec_csat = df_csat.groupby("tecnico")["nota_num"].agg(["mean", "count"]).reset_index()
-                df_tec_csat.columns = ["Técnico", "Nota Média", "Avaliações"]
-                df_tec_csat["Nota Média"] = df_tec_csat["Nota Média"].round(2)
-                
-                fig_tec_csat = px.bar(
-                    df_tec_csat, x="Técnico", y="Nota Média",
-                    text="Nota Média", color="Nota Média",
-                    range_y=[0, 5], color_continuous_scale="Blues"
-                )
-                st.plotly_chart(aplicar_layout_plotly(fig_tec_csat), use_container_width=True)
+                df_tec_csat = df_csat[df_csat["tecnico"] != ""].groupby("tecnico")["nota_num"].agg(["mean", "count"]).reset_index()
+                if not df_tec_csat.empty:
+                    df_tec_csat.columns = ["Técnico", "Nota Média", "Avaliações"]
+                    df_tec_csat["Nota Média"] = df_tec_csat["Nota Média"].round(2)
+                    
+                    fig_tec_csat = px.bar(
+                        df_tec_csat, x="Técnico", y="Nota Média",
+                        text="Nota Média", color="Nota Média",
+                        range_y=[0, 5], color_continuous_scale="Blues"
+                    )
+                    st.plotly_chart(aplicar_layout_plotly(fig_tec_csat), use_container_width=True)
+                else:
+                    st.info("Sem dados de técnicos avaliados.")
 
     # ============================================================
     # TAB: FEED DE REVIEWS & FEEDBACK
