@@ -8,7 +8,7 @@ from services.sheets import carregar_chamados
 # ============================================================
 
 st.set_page_config(
-    page_title="Portal de Chamados TI",
+    page_title="Portal de Chamados TI - Ferpam",
     page_icon="🎫",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -23,6 +23,60 @@ MESES_DIC = {
     5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
     9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
 }
+
+AZUL_FERPAM = "#003399"
+AZUL_FERPAM_HOVER = "#002266"
+
+# ============================================================
+# ESTILIZAÇÃO CSS AVANÇADA
+# ============================================================
+
+st.markdown(f"""
+<style>
+    header[data-testid="stHeader"] {{ background-color: transparent !important; }}
+    footer {{ visibility: hidden; }}
+    
+    /* Botões */
+    .stButton > button[data-testid="stBaseButton-primary"], button[kind="primary"] {{
+        background-color: {AZUL_FERPAM} !important; 
+        border: 1px solid {AZUL_FERPAM} !important; 
+        color: #ffffff !important; 
+        border-radius: 8px !important; 
+        font-weight: 700 !important;
+    }}
+    .stButton > button[data-testid="stBaseButton-primary"]:hover, button[kind="primary"]:hover {{
+        background-color: {AZUL_FERPAM_HOVER} !important; 
+        border-color: {AZUL_FERPAM_HOVER} !important;
+    }}
+
+    /* Cards e Métricas */
+    div[data-testid="stMetric"] {{ 
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0 !important; 
+        border-radius: 12px !important; 
+        padding: 16px !important; 
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04); 
+    }}
+    
+    /* Customização das Abas */
+    .stTabs [data-baseweb="tab-list"] {{
+        gap: 8px;
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        height: 48px;
+        white-space: pre-wrap;
+        background-color: #f1f5f9;
+        border-radius: 8px 8px 0px 0px;
+        padding-left: 16px;
+        padding-right: 16px;
+        font-weight: 600;
+    }}
+    .stTabs [aria-selected="true"] {{
+        background-color: {AZUL_FERPAM} !important;
+        color: white !important;
+    }}
+</style>
+""", unsafe_allow_html=True)
 
 # ============================================================
 # FUNÇÕES AUXILIARES
@@ -43,6 +97,53 @@ def formatar_tempo(minutos):
         return f"{horas}h {mins:02d}m"
     else:
         return f"{mins} min"
+
+def classificar_status_grupo(status_str):
+    if not status_str or str(status_str).strip() == "" or str(status_str).strip().lower() == "nan":
+        return "Abertos"
+    s = str(status_str).strip().casefold()
+    concluidos_kw = ["concluído", "concluido", "finalizado", "fechado", "resolvido", "encerrado", "cancelado"]
+    andamento_kw = ["em andamento", "em atendimento", "atendendo", "execução", "execucao", "iniciado", "aguardando"]
+
+    if any(kw in s for kw in concluidos_kw):
+        return "Concluídos"
+    elif any(kw in s for kw in andamento_kw):
+        return "Em Andamento"
+    else:
+        return "Abertos"
+
+def calcular_progresso(chamado):
+    grupo = classificar_status_grupo(chamado.get("status", ""))
+    tecnico = str(chamado.get("tecnico", "")).strip().casefold()
+    atividade = str(chamado.get("atividade_realizada", "")).strip().casefold()
+    if grupo == "Concluídos": 
+        return 100, "🟢 Chamado Finalizado"
+    elif grupo == "Em Andamento": 
+        return (80, "🔵 Em Atendimento (Atividade Registrada)") if atividade and atividade != "nan" else (60, "🔵 Em Atendimento / Aguardando")
+    elif tecnico and tecnico not in ["nan", "não atribuído", "nao atribuido", ""]: 
+        return 35, "🟡 Técnico Atribuído (Aguardando Início)"
+    else: 
+        return 15, "🟠 Chamado Aberto na Fila"
+
+def get_status_badge(status):
+    status_clean = str(status).strip()
+    grupo = classificar_status_grupo(status_clean)
+    color, bg, icon = ("#10b981", "rgba(16, 185, 129, 0.12)", "🟢") if grupo == "Concluídos" else ((AZUL_FERPAM, "rgba(0, 51, 153, 0.12)", "🔵") if grupo == "Em Andamento" else ("#d97706", "rgba(217, 119, 6, 0.12)", "🟡"))
+    return f"""<span style="background-color: {bg}; color: {color}; font-weight: 700; font-size: 0.82rem; padding: 4px 12px; border-radius: 20px; border: 1px solid {color}44; display: inline-flex; align-items: center; gap: 6px;">{icon} {status_clean if status_clean else 'Aberto'}</span>"""
+
+def render_barra_progresso(pct, texto_estagio):
+    bar_color = "#10b981" if pct == 100 else (AZUL_FERPAM if pct >= 50 else "#d97706")
+    return f"""
+    <div style="margin-top: 10px; margin-bottom: 6px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 0.83rem; font-weight: 600; color: #64748b;">{texto_estagio}</span>
+            <span style="font-size: 0.85rem; font-weight: 800; color: {bar_color}; background-color: {bar_color}18; padding: 2px 10px; border-radius: 12px;">{pct}%</span>
+        </div>
+        <div style="width: 100%; background-color: #cbd5e1; height: 10px; border-radius: 6px; overflow: hidden;">
+            <div style="width: {pct}%; background-color: {bar_color}; height: 100%; border-radius: 6px;"></div>
+        </div>
+    </div>
+    """
 
 # ============================================================
 # CARREGAMENTO E TRATAMENTO DE DADOS
@@ -94,6 +195,8 @@ def carregar_dados():
             "resolucao": "atividade_realizada",
             "nota": "nota_atendimento",
             "avaliacao": "nota_atendimento",
+            "comentario": "comentario_avaliacao",
+            "feedback": "comentario_avaliacao"
         }
         df_raw = df_raw.rename(columns=mapeamento_colunas)
 
@@ -102,11 +205,11 @@ def carregar_dados():
                 df_raw[col] = ""
 
         for col in ["id_chamado", "solicitante", "titulo", "ocorrencia", "status", 
-                    "prioridade", "tecnico", "cidade", "atividade_realizada"]:
+                    "prioridade", "tecnico", "cidade", "atividade_realizada", "comentario_avaliacao"]:
             df_raw[col] = df_raw[col].fillna("").astype(str).str.strip()
             df_raw[col] = df_raw[col].replace({"nan": "", "None": "", "null": "", "<NA>": ""})
 
-        # Apenas os dois técnicos permitidos
+        # Filtro estrito: Apenas os dois técnicos solicitados
         df_raw = df_raw[df_raw["tecnico"].isin(TECNICOS_PERMITIDOS)].copy()
 
         nota_limpa = df_raw["nota_atendimento"].astype(str).str.replace(",", ".", regex=False).str.strip()
@@ -139,6 +242,7 @@ def carregar_dados():
         )
 
         df_raw["eh_roadmap"] = (df_raw["min_total"] >= LIMITE_ROADMAP_MINUTOS)
+        df_raw["grupo_status"] = df_raw["status"].apply(classificar_status_grupo)
 
         return df_raw
 
@@ -149,28 +253,10 @@ def carregar_dados():
 df = carregar_dados()
 
 # ============================================================
-# CLASSIFICAÇÃO DE STATUS
-# ============================================================
-
-def classificar_status_grupo(status_str):
-    if not status_str or str(status_str).strip() == "" or str(status_str).strip().lower() == "nan":
-        return "Abertos"
-    s = str(status_str).strip().casefold()
-    concluidos_kw = ["concluído", "concluido", "finalizado", "fechado", "resolvido", "encerrado", "cancelado"]
-    andamento_kw = ["em andamento", "em atendimento", "atendendo", "execução", "execucao", "iniciado", "aguardando"]
-
-    if any(kw in s for kw in concluidos_kw):
-        return "Concluídos"
-    elif any(kw in s for kw in andamento_kw):
-        return "Em Andamento"
-    else:
-        return "Abertos"
-
-# ============================================================
 # ESTADOS DA SESSÃO
 # ============================================================
 
-for key, val in [("tela", "busca"), ("ticket_aberto", None), ("autenticado_admin", False), ("filtro_tec", "Todos")]:
+for key, val in [("tela", "busca"), ("ticket_aberto", None), ("autenticado_admin", False)]:
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -183,23 +269,6 @@ def voltar_busca():
     st.session_state.tela = "busca"
 
 lista_status_opcoes = ["Todos os Status"] + sorted(list(set([s for s in df["status"].unique() if s and s.casefold() != "nan"])), key=str.casefold)
-
-AZUL_FERPAM = "#003399"
-AZUL_FERPAM_HOVER = "#002266"
-
-st.markdown(f"""
-<style>
-    header[data-testid="stHeader"] {{ background-color: transparent !important; }}
-    footer {{ visibility: hidden; }}
-    .stButton > button[data-testid="stBaseButton-primary"], button[kind="primary"] {{
-        background-color: {AZUL_FERPAM} !important; border: 1px solid {AZUL_FERPAM} !important; color: #ffffff !important; border-radius: 8px !important; font-weight: 700 !important;
-    }}
-    .stButton > button[data-testid="stBaseButton-primary"]:hover, button[kind="primary"]:hover {{
-        background-color: {AZUL_FERPAM_HOVER} !important; border-color: {AZUL_FERPAM_HOVER} !important;
-    }}
-    div[data-testid="stMetric"] {{ border: 1px solid #cbd5e1 !important; border-radius: 12px !important; padding: 16px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }}
-</style>
-""", unsafe_allow_html=True)
 
 # ============================================================
 # MENU LATERAL & AUTENTICAÇÃO
@@ -240,40 +309,7 @@ elif opcao_menu == "🔍 Consultar Chamados" and st.session_state.tela == "dashb
     st.session_state.tela = "busca"
 
 # ============================================================
-# FUNÇÕES DE RENDERIZAÇÃO DE STATUS/BARRA
-# ============================================================
-
-def calcular_progresso(chamado):
-    grupo = classificar_status_grupo(chamado.get("status", ""))
-    tecnico = str(chamado.get("tecnico", "")).strip().casefold()
-    atividade = str(chamado.get("atividade_realizada", "")).strip().casefold()
-    if grupo == "Concluídos": return 100, "🟢 Chamado Finalizado"
-    elif grupo == "Em Andamento": return (80, "🔵 Em Atendimento (Atividade Registrada)") if atividade and atividade != "nan" else (60, "🔵 Em Atendimento / Aguardando")
-    elif tecnico and tecnico not in ["nan", "não atribuído", "nao atribuido", ""]: return 35, "🟡 Técnico Atribuído (Aguardando Início)"
-    else: return 15, "🟠 Chamado Aberto na Fila"
-
-def get_status_badge(status):
-    status_clean = str(status).strip()
-    grupo = classificar_status_grupo(status_clean)
-    color, bg, icon = ("#10b981", "rgba(16, 185, 129, 0.12)", "🟢") if grupo == "Concluídos" else ((AZUL_FERPAM, "rgba(0, 51, 153, 0.12)", "🔵") if grupo == "Em Andamento" else ("#d97706", "rgba(217, 119, 6, 0.12)", "🟡"))
-    return f"""<span style="background-color: {bg}; color: {color}; font-weight: 700; font-size: 0.82rem; padding: 4px 12px; border-radius: 20px; border: 1px solid {color}44; display: inline-flex; align-items: center; gap: 6px;">{icon} {status_clean if status_clean else 'Aberto'}</span>"""
-
-def render_barra_progresso(pct, texto_estagio):
-    bar_color = "#10b981" if pct == 100 else (AZUL_FERPAM if pct >= 50 else "#d97706")
-    return f"""
-    <div style="margin-top: 10px; margin-bottom: 6px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <span style="font-size: 0.83rem; font-weight: 600; color: #64748b;">{texto_estagio}</span>
-            <span style="font-size: 0.85rem; font-weight: 800; color: {bar_color}; background-color: {bar_color}18; padding: 2px 10px; border-radius: 12px;">{pct}%</span>
-        </div>
-        <div style="width: 100%; background-color: #cbd5e1; height: 10px; border-radius: 6px; overflow: hidden;">
-            <div style="width: {pct}%; background-color: {bar_color}; height: 100%; border-radius: 6px;"></div>
-        </div>
-    </div>
-    """
-
-# ============================================================
-# TELA DETALHES DO TICKET
+# TELA 1: DETALHES DO TICKET SELECIONADO
 # ============================================================
 
 if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not None:
@@ -334,7 +370,7 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
     st.stop()
 
 # ============================================================
-# TELA DE BUSCA DE CHAMADOS
+# TELA 2: BUSCA DE CHAMADOS (PÚBLICA)
 # ============================================================
 
 if st.session_state.tela == "busca":
@@ -378,7 +414,7 @@ if st.session_state.tela == "busca":
                     st.button("👁️ Ver detalhes", key=f"btn_usr_{t_id}_{idx}", on_click=abrir_ticket, args=(t_id,), use_container_width=True)
 
 # ============================================================
-# TELA DASHBOARD DE INDICADORES
+# TELA 3: DASHBOARD DE INDICADORES (ADMIN - ORGANIZADO EM ABAS)
 # ============================================================
 
 if st.session_state.tela == "dashboard":
@@ -388,99 +424,199 @@ if st.session_state.tela == "dashboard":
 
     st.title("📊 Painel de Indicadores de TI")
 
-    # FILTROS
+    # FILTROS DE PERÍODO NA SIDEBAR
     anos_disponiveis = sorted([int(a) for a in df["ano_abertura"].dropna().unique()], reverse=True)
     opcoes_anos = ["Todos os Anos"] + anos_disponiveis
     
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🗓️ Filtro de Período")
-    ano_sel = st.sidebar.selectbox("📅 Escolha o Ano", options=opcoes_anos, index=0)
+    st.sidebar.markdown("### 🗓️ Filtros do Dashboard")
+    ano_sel = st.sidebar.selectbox("📅 Ano de Abertura", options=opcoes_anos, index=0)
 
     df_ano = df.copy() if ano_sel == "Todos os Anos" else df[df["ano_abertura"] == ano_sel]
     meses_nums = sorted([int(m) for m in df_ano["mes_num_abertura"].dropna().unique()])
     opcoes_meses = ["Todos os Meses"] + [MESES_DIC[m] for m in meses_nums if m in MESES_DIC]
-    mes_sel = st.sidebar.selectbox("🗓️ Escolha o Mês", options=opcoes_meses, index=0)
+    mes_sel = st.sidebar.selectbox("🗓️ Mês de Abertura", options=opcoes_meses, index=0)
 
     df_base = df_ano.copy()
     if mes_sel != "Todos os Meses":
         df_base = df_base[df_base["mes_nome_abertura"] == mes_sel]
 
-    ocultar_roadmap = st.checkbox("🚫 Ocultar Projetos/Roadmap (> 5 dias) dos cálculos de SLA", value=True)
+    ocultar_roadmap = st.sidebar.checkbox("🚫 Ocultar Projetos (> 5 dias) do SLA", value=True)
     
     df_sla = df_base[df_base["sla_valido"]].copy()
     if ocultar_roadmap:
         df_sla = df_sla[~df_sla["eh_roadmap"]]
 
-    st.caption(f"⚡ Período Selecionado: **{mes_sel} / {ano_sel}**")
-    st.divider()
+    st.caption(f"⚡ Exibindo dados de: **{mes_sel} / {ano_sel}** | Total de registros base: **{len(df_base)}**")
 
-    # 1. VISÃO GERAL DE VOLUME (COM GRÁFICO MANTIDO)
-    st.subheader("📈 Volume Geral de Chamados")
-    
-    df_vol = df_base.groupby(["tecnico", "status"]).size().reset_index(name="Quantidade")
-    if not df_vol.empty:
-        fig_vol = px.bar(
-            df_vol, 
-            x="tecnico", 
-            y="Quantidade", 
-            color="status", 
-            barmode="group",
-            title="Total de Chamados por Técnico e Status",
-            labels={"tecnico": "Técnico", "Quantidade": "Qtd Chamados", "status": "Status"},
-            color_discrete_sequence=px.colors.qualitative.Set2
-        )
-        fig_vol.update_layout(margin=dict(l=20, r=20, t=40, b=20), height=350)
-        st.plotly_chart(fig_vol, use_container_width=True)
+    # ============================================================
+    # ESTRUTURA EM ABAS (ORGANIZADA E COMPLETA)
+    # ============================================================
 
-    st.divider()
+    tab_overview, tab_sla, tab_satisfacao, tab_tabela = st.tabs([
+        "📊 Visão Geral & Volume",
+        "⏱️ SLA & Tempos (Sem Gráfico)",
+        "⭐ Avaliações & NPS",
+        "📋 Tabela Completa & Filtros"
+    ])
 
-    # 2. SEÇÃO DE SLA (SEM GRÁFICO - SOMENTE MÉTRICAS E CARDS)
-    st.subheader("⏱️ Indicadores de SLA e Tempos Médios (Sem Gráfico)")
-    
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Chamados SLA Válido", len(df_sla))
-    m2.metric("Média - Início Atendimento", formatar_tempo(df_sla["min_ate_tecnico"].mean()))
-    m3.metric("Média - Tempo Execução", formatar_tempo(df_sla["min_resolucao"].mean()))
-    m4.metric("Média - Tempo Total", formatar_tempo(df_sla["min_total"].mean()))
+    # ------------------------------------------------------------
+    # ABA 1: VISÃO GERAL & VOLUME
+    # ------------------------------------------------------------
+    with tab_overview:
+        st.subheader("📌 Indicadores Globais do Período")
+        
+        c_kpi1, c_kpi2, c_kpi3, c_kpi4, c_kpi5 = st.columns(5)
+        c_kpi1.metric("Total Chamados", len(df_base))
+        c_kpi2.metric("Concluídos", len(df_base[df_base["grupo_status"] == "Concluídos"]))
+        c_kpi3.metric("Em Andamento", len(df_base[df_base["grupo_status"] == "Em Andamento"]))
+        c_kpi4.metric("Abertos / Fila", len(df_base[df_base["grupo_status"] == "Abertos"]))
+        
+        media_nota = df_base["nota_num"].mean()
+        c_kpi5.metric("Nota Média (NPS)", f"{media_nota:.1f} ⭐" if pd.notna(media_nota) else "N/A")
 
-    st.write("")
-    tec_cols = st.columns(len(TECNICOS_PERMITIDOS))
-    
-    for idx, tec_nome in enumerate(TECNICOS_PERMITIDOS):
-        df_tec = df_sla[df_sla["tecnico"].str.casefold() == tec_nome.casefold()]
-        total_tec = len(df_tec)
-        media_inicio = df_tec["min_ate_tecnico"].mean()
-        media_exec = df_tec["min_resolucao"].mean()
-        media_total = df_tec["min_total"].mean()
+        st.divider()
+        st.subheader("📈 Volume por Técnico e Status")
+        
+        df_vol = df_base.groupby(["tecnico", "status"]).size().reset_index(name="Quantidade")
+        if not df_vol.empty:
+            fig_vol = px.bar(
+                df_vol, 
+                x="tecnico", 
+                y="Quantidade", 
+                color="status", 
+                barmode="group",
+                text="Quantidade",
+                title="Distribuição de Chamados por Técnico Responsável",
+                labels={"tecnico": "Técnico", "Quantidade": "Qtd Chamados", "status": "Status"},
+                color_discrete_sequence=px.colors.qualitative.Set2
+            )
+            fig_vol.update_traces(textposition='outside')
+            fig_vol.update_layout(margin=dict(l=20, r=20, t=40, b=20), height=400)
+            st.plotly_chart(fig_vol, use_container_width=True)
+        else:
+            st.info("Nenhum chamado encontrado para os filtros selecionados.")
 
-        with tec_cols[idx]:
-            with st.container(border=True):
-                st.markdown(f"### 👤 {tec_nome}")
-                st.write(f"**Total Chamados SLA:** {total_tec}")
-                st.write(f"**Início Médio:** {formatar_tempo(media_inicio)}")
-                st.write(f"**Execução Média:** {formatar_tempo(media_exec)}")
-                st.write(f"**Tempo Total Médio:** {formatar_tempo(media_total)}")
+    # ------------------------------------------------------------
+    # ABA 2: SLA & TEMPOS (TOTALMENTE SEM GRÁFICO)
+    # ------------------------------------------------------------
+    with tab_sla:
+        st.subheader("⏱️ Métricas Gerais de SLA (Atendimento & Solução)")
+        st.info("ℹ️ Esta seção exibe exclusivamente métricas numéricas e tabelas analíticas (sem exibição de gráficos).")
 
-    st.divider()
+        col_sla1, col_sla2, col_sla3, col_sla4 = st.columns(4)
+        col_sla1.metric("Chamados SLA Válidos", len(df_sla))
+        col_sla2.metric("Tempo Médio até Assumir", formatar_tempo(df_sla["min_ate_tecnico"].mean()))
+        col_sla3.metric("Tempo Médio de Execução", formatar_tempo(df_sla["min_resolucao"].mean()))
+        col_sla4.metric("Tempo Total Médio", formatar_tempo(df_sla["min_total"].mean()))
 
-    # 3. TABELA DETALHADA DOS CHAMADOS
-    st.subheader("📋 Detalhamento dos Chamados")
-    col_filtro, _ = st.columns([2, 2])
-    with col_filtro:
-        tec_filtro = st.selectbox("Filtrar Tabela por Técnico", ["Todos"] + TECNICOS_PERMITIDOS)
-    
-    df_tabela = df_base.copy()
-    if tec_filtro != "Todos":
-        df_tabela = df_tabela[df_tabela["tecnico"].str.casefold() == tec_filtro.casefold()]
+        st.divider()
+        st.subheader("👨‍💻 Desempenho de SLA por Técnico")
+        
+        tec_cols = st.columns(len(TECNICOS_PERMITIDOS))
+        for idx, tec_nome in enumerate(TECNICOS_PERMITIDOS):
+            df_tec = df_sla[df_sla["tecnico"].str.casefold() == tec_nome.casefold()]
+            total_tec = len(df_tec)
+            media_inicio = df_tec["min_ate_tecnico"].mean()
+            media_exec = df_tec["min_resolucao"].mean()
+            media_total = df_tec["min_total"].mean()
 
-    df_exibicao = df_tabela[["id_chamado", "tecnico", "solicitante", "titulo", "status", "min_total"]].copy()
-    df_exibicao["Tempo Total"] = df_exibicao["min_total"].apply(formatar_tempo)
-    df_exibicao = df_exibicao.drop(columns=["min_total"]).rename(columns={
-        "id_chamado": "Chamado",
-        "tecnico": "Técnico",
-        "solicitante": "Solicitante",
-        "titulo": "Título",
-        "status": "Status"
-    })
+            with tec_cols[idx]:
+                with st.container(border=True):
+                    st.markdown(f"### 👤 {tec_nome}")
+                    st.write(f"**Total de Chamados Válidos:** {total_tec}")
+                    st.write(f"**Tempo Médio de Resposta (Início):** {formatar_tempo(media_inicio)}")
+                    st.write(f"**Tempo Médio de Execução:** {formatar_tempo(media_exec)}")
+                    st.write(f"**Tempo Médio Total:** {formatar_tempo(media_total)}")
 
-    st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
+        st.divider()
+        st.subheader("📄 Registros de SLA dos Chamados")
+        
+        df_sla_exib = df_sla[["id_chamado", "tecnico", "solicitante", "titulo", "min_ate_tecnico", "min_resolucao", "min_total"]].copy()
+        df_sla_exib["Início"] = df_sla_exib["min_ate_tecnico"].apply(formatar_tempo)
+        df_sla_exib["Execução"] = df_sla_exib["min_resolucao"].apply(formatar_tempo)
+        df_sla_exib["Tempo Total"] = df_sla_exib["min_total"].apply(formatar_tempo)
+        
+        df_sla_exib = df_sla_exib.drop(columns=["min_ate_tecnico", "min_resolucao", "min_total"]).rename(columns={
+            "id_chamado": "Chamado",
+            "tecnico": "Técnico",
+            "solicitante": "Solicitante",
+            "titulo": "Título"
+        })
+        st.dataframe(df_sla_exib, use_container_width=True, hide_index=True)
+
+    # ------------------------------------------------------------
+    # ABA 3: AVALIAÇÕES & SATISFAÇÃO (NPS)
+    # ------------------------------------------------------------
+    with tab_satisfacao:
+        st.subheader("⭐ Avaliações dos Solicitantes")
+        
+        df_aval = df_base[df_base["nota_num"].notna()].copy()
+        
+        if df_aval.empty:
+            st.warning("Nenhuma avaliação registrada no período selecionado.")
+        else:
+            s1, s2, s3 = st.columns(3)
+            s1.metric("Total de Avaliações", len(df_aval))
+            s2.metric("Média Geral de Satisfação", f"{df_aval['nota_num'].mean():.2f} / 5.0")
+            s3.metric("Taxa de Resposta de Avaliação", f"{(len(df_aval) / len(df_base) * 100):.1f}%")
+
+            st.divider()
+            
+            # Média por Técnico
+            col_sat_tec1, col_sat_tec2 = st.columns(2)
+            for idx, tec_nome in enumerate(TECNICOS_PERMITIDOS):
+                df_tec_aval = df_aval[df_aval["tecnico"].str.casefold() == tec_nome.casefold()]
+                col_alvo = col_sat_tec1 if idx == 0 else col_sat_tec2
+                with col_alvo:
+                    with st.container(border=True):
+                        st.markdown(f"#### 👤 {tec_nome}")
+                        media_t = df_tec_aval["nota_num"].mean()
+                        qtd_t = len(df_tec_aval)
+                        st.write(f"**Nota Média:** {f'{media_t:.2f} ⭐' if pd.notna(media_t) else 'Sem avaliações'}")
+                        st.write(f"**Avaliados:** {qtd_t} chamado(s)")
+
+            st.divider()
+            st.subheader("💬 Comentários e Feedbacks Recebidos")
+            
+            df_coment = df_aval[df_aval["comentario_avaliacao"].str.strip() != ""].copy()
+            if df_coment.empty:
+                st.info("Nenhum comentário por escrito registrado para este período.")
+            else:
+                for _, row_c in df_coment.iterrows():
+                    with st.container(border=True):
+                        st.markdown(f"**Chamado #{row_c['id_chamado']}** | Solicitante: *{row_c['solicitante']}* | Técnico: **{row_c['tecnico']}**")
+                        st.markdown(f"**Nota:** {row_c['nota_num']} ⭐")
+                        comentario_txt = row_c['comentario_avaliacao']
+                        st.write(f'💬 *"{comentario_txt}"*')
+
+    # ------------------------------------------------------------
+    # ABA 4: TABELA COMPLETA & FILTROS DE DADOS
+    # ------------------------------------------------------------
+    with tab_tabela:
+        st.subheader("📋 Tabela Geral de Chamados")
+        
+        f1, f2 = st.columns(2)
+        with f1:
+            filtro_tec_tab = st.selectbox("Filtrar por Técnico Responsável", ["Todos"] + TECNICOS_PERMITIDOS, key="tab_f_tec")
+        with f2:
+            filtro_stat_tab = st.selectbox("Filtrar por Status", lista_status_opcoes, key="tab_f_stat")
+
+        df_tab_final = df_base.copy()
+        if filtro_tec_tab != "Todos":
+            df_tab_final = df_tab_final[df_tab_final["tecnico"].str.casefold() == filtro_tec_tab.casefold()]
+        if filtro_stat_tab != "Todos os Status":
+            df_tab_final = df_tab_final[df_tab_final["status"].str.casefold() == filtro_stat_tab.casefold()]
+
+        cols_mostrar = ["id_chamado", "tecnico", "solicitante", "titulo", "status", "prioridade", "cidade"]
+        df_display = df_tab_final[cols_mostrar].rename(columns={
+            "id_chamado": "Chamado",
+            "tecnico": "Técnico",
+            "solicitante": "Solicitante",
+            "titulo": "Título",
+            "status": "Status",
+            "prioridade": "Prioridade",
+            "cidade": "Cidade"
+        })
+
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
