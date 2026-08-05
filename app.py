@@ -106,8 +106,9 @@ def carregar_dados():
             df_raw[col] = df_raw[col].fillna("").astype(str).str.strip()
             df_raw[col] = df_raw[col].replace({"nan": "", "None": "", "null": "", "<NA>": ""})
 
-        # --- FILTRO PARA REMOVER MATHEUS NUNES DA BASE COMPLETA ---
-        df_raw = df_raw[~df_raw["tecnico"].str.casefold().str.contains("matheus nunes", na=False)]
+        # --- FILTRO RIGOROSO: REMOVE QUALQUER MATEUS / MATHEUS NUNES ---
+        padrao_matheus = r"mat?heus.*nunes|mat?heus"
+        df_raw = df_raw[~df_raw["tecnico"].str.contains(padrao_matheus, case=False, regex=True, na=False)]
 
         nota_limpa = df_raw["nota_atendimento"].astype(str).str.replace(",", ".", regex=False).str.strip()
         df_raw["nota_num"] = pd.to_numeric(nota_limpa, errors="coerce")
@@ -128,17 +129,20 @@ def carregar_dados():
         df_raw["mes_num_abertura"] = df_raw["dt_abertura"].dt.month
         df_raw["mes_nome_abertura"] = df_raw["mes_num_abertura"].map(MESES_DIC)
 
-        # Cálculo dos Tempos em Minutos
-        df_raw["min_total"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
-        df_raw["min_ate_tecnico"] = (df_raw["dt_tecnico"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
-        df_raw["min_resolucao"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_tecnico"]).dt.total_seconds() / 60.0
-
-        # OBRIGATORIEDADE RIGOROSA: AS 3 DATAS DEVEM ESTAR PREENCHIDAS E VÁLIDAS
+        # OBRIGATORIEDADE DE TER AS 3 DATAS PREENCHIDAS
         df_raw["tem_3_datas"] = (
             df_raw["dt_abertura"].notna() & 
             df_raw["dt_tecnico"].notna() & 
             df_raw["dt_conclusao_efetiva"].notna()
         )
+
+        # Cálculo dos Tempos em Minutos
+        df_raw["min_total"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
+        df_raw["min_ate_tecnico"] = (df_raw["dt_tecnico"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
+        df_raw["min_resolucao"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_tecnico"]).dt.total_seconds() / 60.0
+
+        # ZERA/ANULA ATRIBUIÇÃO E DEMAIS TEMPOS CASO NÃO TENHA AS 3 DATAS
+        df_raw.loc[~df_raw["tem_3_datas"], ["min_ate_tecnico", "min_resolucao", "min_total"]] = None
 
         df_raw["sla_valido"] = (
             df_raw["tem_3_datas"] &
@@ -678,13 +682,13 @@ if st.session_state.tela == "dashboard":
         st.dataframe(df_filtrado_dash[cols_vis], use_container_width=True, hide_index=True)
 
     # ============================================================
-    # TAB 2: SLAS & MÉDIAS DE TEMPO (3 DATAS VÁLIDAS EXIGIDAS)
+    # TAB 2: SLAS & MÉDIAS DE TEMPO (RIGOROSO COM 3 DATAS)
     # ============================================================
     with tab_sla:
         st.subheader("⏱️ Métricas de SLA (Exige as 3 datas preenchidas)")
-        st.caption("ℹ️ **Atribuição, Execução e Conclusão** dependem exclusivamente de chamados com todas as 3 datas válidas. Chamados acima de **6 dias** são computados em **Roadmap** separadamente.")
+        st.caption("ℹ️ **Atribuição, Execução e Conclusão** só consideram chamados onde as 3 datas (Abertura, Início Técnico e Conclusão) estejam totalmente registradas.")
 
-        # FILTRO RÍGIDO: SÓ CONSIDERA CHAMADOS COM AS 3 DATAS
+        # FILTRO RIGOROSO: SÓ CONSIDERA CHAMADOS COM AS 3 DATAS PREENCHIDAS
         df_sla = df[df["sla_valido"] == True]
 
         # SEPARAÇÃO EXCLUSIVA DE ROADMAP VS OPERAÇÃO PADRÃO
@@ -695,16 +699,16 @@ if st.session_state.tela == "dashboard":
         with c1:
             st.metric("SLA Válidos", len(df_sla))
         with c2:
-            med_assumir = df_sla["min_ate_tecnico"].mean() if not df_sla.empty else 0
+            med_assumir = df_sla["min_ate_tecnico"].dropna().mean() if not df_sla.empty else 0
             st.metric("Média Atribuição", formatar_tempo(med_assumir))
         with c3:
-            med_exec = df_sla["min_resolucao"].mean() if not df_sla.empty else 0
+            med_exec = df_sla["min_resolucao"].dropna().mean() if not df_sla.empty else 0
             st.metric("Média Execução", formatar_tempo(med_exec))
         with c4:
-            med_total_padrao = df_sla_padrao["min_total"].mean() if not df_sla_padrao.empty else 0
+            med_total_padrao = df_sla_padrao["min_total"].dropna().mean() if not df_sla_padrao.empty else 0
             st.metric("Média Total (Padrão <= 6d)", formatar_tempo(med_total_padrao))
         with c5:
-            med_total_roadmap = df_sla_roadmap["min_total"].mean() if not df_sla_roadmap.empty else 0
+            med_total_roadmap = df_sla_roadmap["min_total"].dropna().mean() if not df_sla_roadmap.empty else 0
             st.metric("🚀 Média Total (Roadmap > 6d)", formatar_tempo(med_total_roadmap))
 
         st.divider()
@@ -724,10 +728,10 @@ if st.session_state.tela == "dashboard":
                         "Técnico": tec,
                         "Total Resolvidos": len(df_tec_todos),
                         "Qtd Roadmap (>6d)": len(df_tec_r),
-                        "Média Atribuição": formatar_tempo(df_tec_todos["min_ate_tecnico"].mean()),
-                        "Média Execução": formatar_tempo(df_tec_todos["min_resolucao"].mean()),
-                        "Média Conclusão (Padrão)": formatar_tempo(df_tec_p["min_total"].mean()) if not df_tec_p.empty else "N/A",
-                        "🚀 Média Conclusão (Roadmap)": formatar_tempo(df_tec_r["min_total"].mean()) if not df_tec_r.empty else "N/A",
+                        "Média Atribuição": formatar_tempo(df_tec_todos["min_ate_tecnico"].dropna().mean()),
+                        "Média Execução": formatar_tempo(df_tec_todos["min_resolucao"].dropna().mean()),
+                        "Média Conclusão (Padrão)": formatar_tempo(df_tec_p["min_total"].dropna().mean()) if not df_tec_p.empty else "N/A",
+                        "🚀 Média Conclusão (Roadmap)": formatar_tempo(df_tec_r["min_total"].dropna().mean()) if not df_tec_r.empty else "N/A",
                     })
 
             if linhas_tecnicos:
