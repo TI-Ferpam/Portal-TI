@@ -681,56 +681,78 @@ if st.session_state.tela == "dashboard":
         st.dataframe(df_filtrado_dash[cols_vis], use_container_width=True, hide_index=True)
 
     # ============================================================
-    # TAB 2: SLAS & MÉDIAS DE TEMPO (REGRAS DE 3 DATAS E ROADMAP)
+    # TAB 2: SLAS & MÉDIAS DE TEMPO (SEPARANDO ROADMAPS)
     # ============================================================
     with tab_sla:
-        st.subheader("⏱️ Métricas Gerais de SLA (Exige as 3 datas preenchidas)")
-        st.caption("ℹ️ São considerados apenas os chamados com `Abertura`, `Atribuição do Técnico` e `Conclusão` preenchidos.")
+        st.subheader("⏱️ Métricas de SLA (Exige as 3 datas preenchidas)")
+        st.caption("ℹ️ Chamados acima de **6 dias** são automaticamente classificados como **Roadmap** e **separados** da Média Total Operacional.")
 
         df_sla = df[df["sla_valido"] == True]
-        
-        c1, c2, c3, c4 = st.columns(4)
+
+        # SEPARAÇÃO DE ROADMAP VS OPERAÇÃO PADRÃO
+        df_sla_padrao = df_sla[df_sla["eh_roadmap"] == False]
+        df_sla_roadmap = df_sla[df_sla["eh_roadmap"] == True]
+
+        c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            st.metric("Chamados Com SLA Válido", len(df_sla))
+            st.metric("SLA Válidos", len(df_sla))
         with c2:
             med_assumir = df_sla["min_ate_tecnico"].mean() if not df_sla.empty else 0
-            st.metric("Média Atribuição (Início)", formatar_tempo(med_assumir))
+            st.metric("Média Atribuição", formatar_tempo(med_assumir))
         with c3:
             med_exec = df_sla["min_resolucao"].mean() if not df_sla.empty else 0
-            st.metric("Média Execução Técnica", formatar_tempo(med_exec))
+            st.metric("Média Execução", formatar_tempo(med_exec))
         with c4:
-            med_total = df_sla["min_total"].mean() if not df_sla.empty else 0
-            st.metric("Média Conclusão Total", formatar_tempo(med_total))
+            med_total_padrao = df_sla_padrao["min_total"].mean() if not df_sla_padrao.empty else 0
+            st.metric("Média Total (Padrão <= 6d)", formatar_tempo(med_total_padrao))
+        with c5:
+            med_total_roadmap = df_sla_roadmap["min_total"].mean() if not df_sla_roadmap.empty else 0
+            st.metric("🚀 Média Total (Roadmap > 6d)", formatar_tempo(med_total_roadmap))
 
         st.divider()
-        st.subheader("👨‍💻 Desempenho e Tempos por Técnico")
+        st.subheader("👨‍💻 Desempenho e Tempos por Técnico (Com Média Roadmap Separada)")
         
         if not df_sla.empty:
-            df_tec_sla = df_sla.groupby("tecnico").agg(
-                qtd_chamados=("id_chamado", "count"),
-                med_assumir=("min_ate_tecnico", "mean"),
-                med_resolucao=("min_resolucao", "mean"),
-                med_total=("min_total", "mean")
-            ).reset_index()
+            # Agrupamento separando métricas operacionais e roadmap
+            linhas_tecnicos = []
+            for tec in TECNICOS_PERMITIDOS:
+                df_tec_todos = df_sla[df_sla["tecnico"] == tec]
+                df_tec_p = df_sla_padrao[df_sla_padrao["tecnico"] == tec]
+                df_tec_r = df_sla_roadmap[df_sla_roadmap["tecnico"] == tec]
 
-            df_tec_sla["Média Atribuição"] = df_tec_sla["med_assumir"].apply(formatar_tempo)
-            df_tec_sla["Média Execução"] = df_tec_sla["med_resolucao"].apply(formatar_tempo)
-            df_tec_sla["Média Total"] = df_tec_sla["med_total"].apply(formatar_tempo)
+                if not df_tec_todos.empty:
+                    linhas_tecnicos.append({
+                        "Técnico": tec,
+                        "Total Resolvidos": len(df_tec_todos),
+                        "Qtd Roadmap (>6d)": len(df_tec_r),
+                        "Média Atribuição": formatar_tempo(df_tec_todos["min_ate_tecnico"].mean()),
+                        "Média Execução": formatar_tempo(df_tec_todos["min_resolucao"].mean()),
+                        "Média Conclusão (Padrão)": formatar_tempo(df_tec_p["min_total"].mean()) if not df_tec_p.empty else "N/A",
+                        "🚀 Média Conclusão (Roadmap)": formatar_tempo(df_tec_r["min_total"].mean()) if not df_tec_r.empty else "N/A",
+                    })
 
-            df_tec_sla_display = df_tec_sla[["tecnico", "qtd_chamados", "Média Atribuição", "Média Execução", "Média Total"]]
-            df_tec_sla_display.columns = ["Técnico", "Qtd Chamados Resolvidos", "Média Atribuição", "Média Execução Técnica", "Média Total Finalização"]
-            st.dataframe(df_tec_sla_display, use_container_width=True, hide_index=True)
+            if linhas_tecnicos:
+                df_tec_sla_display = pd.DataFrame(linhas_tecnicos)
+                st.dataframe(df_tec_sla_display, use_container_width=True, hide_index=True)
+            else:
+                st.warning("Nenhum chamado resolvido pelos técnicos selecionados possui as 3 datas válidas.")
         else:
             st.warning("Nenhum chamado finalizado possui as 3 datas válidas registradas para exibição dos tempos.")
 
         st.divider()
-        st.subheader("🚀 Chamados Roadmap (> 6 Dias)")
-        df_roadmap = df[df["eh_roadmap"] == True]
-        if df_roadmap.empty:
+        st.subheader("🚀 Detalhamento dos Chamados Roadmap (> 6 Dias)")
+        if df_sla_roadmap.empty:
             st.success("Nenhum chamado ultrapassou 6 dias de atendimento!")
         else:
-            st.warning(f"Identificados **{len(df_roadmap)}** chamado(s) com tempo de resolução superior a 6 dias (Roadmap):")
-            st.dataframe(df_roadmap[["id_chamado", "solicitante", "titulo", "tecnico", "departamento", "status"]], use_container_width=True, hide_index=True)
+            st.warning(f"Identificados **{len(df_sla_roadmap)}** chamado(s) finalizado(s) com tempo superior a 6 dias:")
+            
+            df_rm_disp = df_sla_roadmap.copy()
+            df_rm_disp["Tempo Total Em Dias"] = df_rm_disp["min_total"].apply(formatar_tempo)
+            st.dataframe(
+                df_rm_disp[["id_chamado", "solicitante", "titulo", "tecnico", "departamento", "status", "Tempo Total Em Dias"]], 
+                use_container_width=True, 
+                hide_index=True
+            )
 
     # ============================================================
     # TAB 3: SATISFAÇÃO & NOTAS (CSAT)
