@@ -14,9 +14,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# APENAS ESTES TÉCNICOS DEVERÃO APARECER EM TODO O SISTEMA
-TECNICOS_PERMITIDOS = ["Matheus Juliati", "Jair de Alcantara"]
-
 # REGRA DE ROADMAP: ACIMA DE 6 DIAS (6 dias * 24 horas * 60 minutos = 8640 min)
 LIMITE_ROADMAP_MINUTOS = 6 * 24 * 60  
 
@@ -108,9 +105,6 @@ def carregar_dados():
                     "prioridade", "departamento", "tecnico", "cidade", "atividade_realizada"]:
             df_raw[col] = df_raw[col].fillna("").astype(str).str.strip()
             df_raw[col] = df_raw[col].replace({"nan": "", "None": "", "null": "", "<NA>": ""})
-
-        # --- FILTRO ESTRITO DE TÉCNICOS PERMITIDOS ---
-        df_raw = df_raw[df_raw["tecnico"].isin(TECNICOS_PERMITIDOS)].copy()
 
         nota_limpa = df_raw["nota_atendimento"].astype(str).str.replace(",", ".", regex=False).str.strip()
         df_raw["nota_num"] = pd.to_numeric(nota_limpa, errors="coerce")
@@ -546,7 +540,7 @@ if st.session_state.tela == "dashboard":
     ])
 
     # ============================================================
-    # TAB 1: OPERAÇÃO & VOLUMETRIA
+    # TAB 1: OPERAÇÃO & VOLUMETRIA (SEM FILTRO RIGIDO DE TECNICOS)
     # ============================================================
     with tab_op:
         st.caption("⚡ **Filtre por Ano/Mês** ou clique nos gráficos para detalhar a operação!")
@@ -643,7 +637,7 @@ if st.session_state.tela == "dashboard":
 
         with g4:
             st.subheader("👨‍💻 Atendimentos por Técnico")
-            df_tec = df_op_base["tecnico"].value_counts().reset_index()
+            df_tec = df_op_base["tecnico"].replace("", "Não Atribuído").value_counts().reset_index()
             df_tec.columns = ["Técnico", "Quantidade"]
             fig_tec = px.bar(df_tec, x="Técnico", y="Quantidade", text="Quantidade", custom_data=["Técnico"])
             evt_tec = st.plotly_chart(aplicar_layout_plotly(fig_tec), use_container_width=True, on_select="rerun", selection_mode="points", key="chart_tec")
@@ -667,7 +661,7 @@ if st.session_state.tela == "dashboard":
             elif tipo_filtro == "departamento":
                 df_filtrado_dash = df_filtrado_dash[df_filtrado_dash["departamento"].replace("", "Outros") == valor_filtro]
             elif tipo_filtro == "tecnico":
-                df_filtrado_dash = df_filtrado_dash[df_filtrado_dash["tecnico"] == valor_filtro]
+                df_filtrado_dash = df_filtrado_dash[df_filtrado_dash["tecnico"].replace("", "Não Atribuído") == valor_filtro]
 
             st.markdown(f"### 📋 Listagem de Chamados Filtrados ({len(df_filtrado_dash)} encontrados)")
             st.info(f"Filtro ativo: **{tipo_filtro.upper()}** = `{valor_filtro}` no período `{rotulo_periodo}`")
@@ -681,15 +675,15 @@ if st.session_state.tela == "dashboard":
         st.dataframe(df_filtrado_dash[cols_vis], use_container_width=True, hide_index=True)
 
     # ============================================================
-    # TAB 2: SLAS & MÉDIAS DE TEMPO (SEPARANDO ROADMAPS)
+    # TAB 2: SLAS & MÉDIAS DE TEMPO (APENAS AQUI SEPARA O ROADMAP)
     # ============================================================
     with tab_sla:
         st.subheader("⏱️ Métricas de SLA (Exige as 3 datas preenchidas)")
-        st.caption("ℹ️ Chamados acima de **6 dias** são automaticamente classificados como **Roadmap** e **separados** da Média Total Operacional.")
+        st.caption("ℹ️ Chamados acima de **6 dias** são considerados **Roadmap** e são **excluídos da Média Total Operacional** para não inflar o indicador da equipe.")
 
         df_sla = df[df["sla_valido"] == True]
 
-        # SEPARAÇÃO DE ROADMAP VS OPERAÇÃO PADRÃO
+        # SEPARAÇÃO EXCLUSIVA DE ROADMAP VS OPERAÇÃO PADRÃO NO SLA
         df_sla_padrao = df_sla[df_sla["eh_roadmap"] == False]
         df_sla_roadmap = df_sla[df_sla["eh_roadmap"] == True]
 
@@ -710,12 +704,13 @@ if st.session_state.tela == "dashboard":
             st.metric("🚀 Média Total (Roadmap > 6d)", formatar_tempo(med_total_roadmap))
 
         st.divider()
-        st.subheader("👨‍💻 Desempenho e Tempos por Técnico (Com Média Roadmap Separada)")
+        st.subheader("👨‍💻 Desempenho e Tempos por Técnico")
         
         if not df_sla.empty:
-            # Agrupamento separando métricas operacionais e roadmap
+            tecnicos_no_sla = sorted(list(set([t for t in df_sla["tecnico"].unique() if t and t != "nan"])))
+            
             linhas_tecnicos = []
-            for tec in TECNICOS_PERMITIDOS:
+            for tec in tecnicos_no_sla:
                 df_tec_todos = df_sla[df_sla["tecnico"] == tec]
                 df_tec_p = df_sla_padrao[df_sla_padrao["tecnico"] == tec]
                 df_tec_r = df_sla_roadmap[df_sla_roadmap["tecnico"] == tec]
@@ -734,8 +729,6 @@ if st.session_state.tela == "dashboard":
             if linhas_tecnicos:
                 df_tec_sla_display = pd.DataFrame(linhas_tecnicos)
                 st.dataframe(df_tec_sla_display, use_container_width=True, hide_index=True)
-            else:
-                st.warning("Nenhum chamado resolvido pelos técnicos selecionados possui as 3 datas válidas.")
         else:
             st.warning("Nenhum chamado finalizado possui as 3 datas válidas registradas para exibição dos tempos.")
 
