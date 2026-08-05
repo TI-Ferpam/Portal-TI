@@ -16,7 +16,9 @@ st.set_page_config(
 
 # APENAS ESTES TÉCNICOS DEVERÃO APARECER EM TODO O SISTEMA
 TECNICOS_PERMITIDOS = ["Matheus Juliati", "Jair de Alcantara"]
-LIMITE_ROADMAP_MINUTOS = 5 * 24 * 60  # 5 dias em minutos = 7200 min
+
+# REGRA DE ROADMAP: ACIMA DE 6 DIAS (6 dias * 24 horas * 60 minutos = 8640 min)
+LIMITE_ROADMAP_MINUTOS = 6 * 24 * 60  
 
 MESES_DIC = {
     1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
@@ -113,7 +115,7 @@ def carregar_dados():
         nota_limpa = df_raw["nota_atendimento"].astype(str).str.replace(",", ".", regex=False).str.strip()
         df_raw["nota_num"] = pd.to_numeric(nota_limpa, errors="coerce")
 
-        # --- CORREÇÃO DA LEITURA DE DATAS BRASILEIRAS (dayfirst=True) ---
+        # --- PARSE DAS DATAS BRASILEIRAS ---
         df_raw["dt_abertura"] = pd.to_datetime(df_raw["data_hora_abertura"], errors="coerce", dayfirst=True).fillna(
             pd.to_datetime(df_raw["data_inicial"], errors="coerce", dayfirst=True)
         )
@@ -134,15 +136,22 @@ def carregar_dados():
         df_raw["min_ate_tecnico"] = (df_raw["dt_tecnico"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
         df_raw["min_resolucao"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_tecnico"]).dt.total_seconds() / 60.0
 
-        # Regra de SLA Válido: Ter ao menos abertura e conclusão corretas (min_total >= 0)
-        df_raw["sla_valido"] = (
-            df_raw["dt_abertura"].notna() &
-            df_raw["dt_conclusao_efetiva"].notna() &
-            (df_raw["min_total"] >= 0)
+        # OBRIGATORIEDADE DE TER AS 3 DATAS PREENCHIDAS E VÁLIDAS PARA SLA
+        df_raw["tem_3_datas"] = (
+            df_raw["dt_abertura"].notna() & 
+            df_raw["dt_tecnico"].notna() & 
+            df_raw["dt_conclusao_efetiva"].notna()
         )
 
-        # MARCAÇÃO DE ROADMAP (>= 5 dias)
-        df_raw["eh_roadmap"] = (df_raw["min_total"] >= LIMITE_ROADMAP_MINUTOS)
+        df_raw["sla_valido"] = (
+            df_raw["tem_3_datas"] &
+            (df_raw["min_total"] >= 0) &
+            (df_raw["min_ate_tecnico"] >= 0) &
+            (df_raw["min_resolucao"] >= 0)
+        )
+
+        # MARCAÇÃO DE ROADMAP (> 6 dias para finalizar)
+        df_raw["eh_roadmap"] = (df_raw["min_total"] > LIMITE_ROADMAP_MINUTOS)
 
         return df_raw
 
@@ -359,6 +368,10 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
     st.caption(f"Solicitante: {chamado.get('solicitante', 'N/A')}")
     st.subheader("📌 Progresso da Resolução")
     st.markdown(render_barra_progresso(percentual, etapa_nome), unsafe_allow_html=True)
+    
+    if chamado.get("eh_roadmap"):
+        st.warning("🚀 **Este chamado é considerado ROADMAP (Tempo total superior a 6 dias).**")
+
     st.divider()
 
     col1, col2, col3 = st.columns(3)
@@ -385,13 +398,13 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
     if chamado.get("sla_valido"):
         t1, t2, t3 = st.columns(3)
         with t1:
-            st.metric("⏳ Tempo até Assumir", formatar_tempo(chamado.get("min_ate_tecnico")))
+            st.metric("⏳ Tempo até Atendimento", formatar_tempo(chamado.get("min_ate_tecnico")))
         with t2:
-            st.metric("🔧 Tempo de Resolução", formatar_tempo(chamado.get("min_resolucao")))
+            st.metric("🔧 Tempo Execução/Técnico", formatar_tempo(chamado.get("min_resolucao")))
         with t3:
-            st.metric("🏁 Tempo Total", formatar_tempo(chamado.get("min_total")))
+            st.metric("🏁 Tempo Total de Conclusão", formatar_tempo(chamado.get("min_total")))
     else:
-        st.info("ℹ️ Chamado em aberto ou sem todas as datas registradas para cálculo de SLA.")
+        st.info("ℹ️ Para exibir as métricas completas de SLA, é necessário que as 3 datas (Abertura, Início Técnico e Conclusão) estejam registradas na planilha.")
 
     st.divider()
     col_a, col_b = st.columns(2)
@@ -533,7 +546,7 @@ if st.session_state.tela == "dashboard":
     ])
 
     # ============================================================
-    # TAB 1: OPERAÇÃO & VOLUMETRIA (COM FILTRO DE ANO E MÊS)
+    # TAB 1: OPERAÇÃO & VOLUMETRIA
     # ============================================================
     with tab_op:
         st.caption("⚡ **Filtre por Ano/Mês** ou clique nos gráficos para detalhar a operação!")
@@ -668,22 +681,26 @@ if st.session_state.tela == "dashboard":
         st.dataframe(df_filtrado_dash[cols_vis], use_container_width=True, hide_index=True)
 
     # ============================================================
-    # TAB 2: SLAS & MÉDIAS DE TEMPO
+    # TAB 2: SLAS & MÉDIAS DE TEMPO (REGRAS DE 3 DATAS E ROADMAP)
     # ============================================================
     with tab_sla:
-        st.subheader("⏱️ Métricas Gerais de SLA (Atendimento & Solução)")
+        st.subheader("⏱️ Métricas Gerais de SLA (Exige as 3 datas preenchidas)")
+        st.caption("ℹ️ São considerados apenas os chamados com `Abertura`, `Atribuição do Técnico` e `Conclusão` preenchidos.")
 
         df_sla = df[df["sla_valido"] == True]
         
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.metric("Chamados Validados para SLA", len(df_sla))
+            st.metric("Chamados Com SLA Válido", len(df_sla))
         with c2:
-            med_exec = df_sla["min_total"].mean() if not df_sla.empty else 0
-            st.metric("Tempo Médio de Resolução", formatar_tempo(med_exec))
+            med_assumir = df_sla["min_ate_tecnico"].mean() if not df_sla.empty else 0
+            st.metric("Média Atribuição (Início)", formatar_tempo(med_assumir))
         with c3:
-            med_assumir = df_sla["min_ate_tecnico"].dropna().mean() if not df_sla["min_ate_tecnico"].dropna().empty else 0
-            st.metric("Tempo Médio até Atendimento", formatar_tempo(med_assumir) if med_assumir > 0 else "Não registrado")
+            med_exec = df_sla["min_resolucao"].mean() if not df_sla.empty else 0
+            st.metric("Média Execução Técnica", formatar_tempo(med_exec))
+        with c4:
+            med_total = df_sla["min_total"].mean() if not df_sla.empty else 0
+            st.metric("Média Conclusão Total", formatar_tempo(med_total))
 
         st.divider()
         st.subheader("👨‍💻 Desempenho e Tempos por Técnico")
@@ -691,16 +708,29 @@ if st.session_state.tela == "dashboard":
         if not df_sla.empty:
             df_tec_sla = df_sla.groupby("tecnico").agg(
                 qtd_chamados=("id_chamado", "count"),
+                med_assumir=("min_ate_tecnico", "mean"),
+                med_resolucao=("min_resolucao", "mean"),
                 med_total=("min_total", "mean")
             ).reset_index()
 
-            df_tec_sla["Tempo Médio de Solução"] = df_tec_sla["med_total"].apply(formatar_tempo)
+            df_tec_sla["Média Atribuição"] = df_tec_sla["med_assumir"].apply(formatar_tempo)
+            df_tec_sla["Média Execução"] = df_tec_sla["med_resolucao"].apply(formatar_tempo)
+            df_tec_sla["Média Total"] = df_tec_sla["med_total"].apply(formatar_tempo)
 
-            df_tec_sla_display = df_tec_sla[["tecnico", "qtd_chamados", "Tempo Médio de Solução"]]
-            df_tec_sla_display.columns = ["Técnico", "Qtd Chamados Resolvidos", "Tempo Médio de Solução"]
+            df_tec_sla_display = df_tec_sla[["tecnico", "qtd_chamados", "Média Atribuição", "Média Execução", "Média Total"]]
+            df_tec_sla_display.columns = ["Técnico", "Qtd Chamados Resolvidos", "Média Atribuição", "Média Execução Técnica", "Média Total Finalização"]
             st.dataframe(df_tec_sla_display, use_container_width=True, hide_index=True)
         else:
-            st.warning("Nenhum chamado finalizado com datas válidas para exibir o SLA.")
+            st.warning("Nenhum chamado finalizado possui as 3 datas válidas registradas para exibição dos tempos.")
+
+        st.divider()
+        st.subheader("🚀 Chamados Roadmap (> 6 Dias)")
+        df_roadmap = df[df["eh_roadmap"] == True]
+        if df_roadmap.empty:
+            st.success("Nenhum chamado ultrapassou 6 dias de atendimento!")
+        else:
+            st.warning(f"Identificados **{len(df_roadmap)}** chamado(s) com tempo de resolução superior a 6 dias (Roadmap):")
+            st.dataframe(df_roadmap[["id_chamado", "solicitante", "titulo", "tecnico", "departamento", "status"]], use_container_width=True, hide_index=True)
 
     # ============================================================
     # TAB 3: SATISFAÇÃO & NOTAS (CSAT)
