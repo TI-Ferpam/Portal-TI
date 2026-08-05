@@ -638,242 +638,163 @@ if st.session_state.tela == "dashboard":
         if tipo_filtro and valor_filtro:
             if tipo_filtro == "status_grupo":
                 df_filtrado_dash = df_filtrado_dash[df_filtrado_dash["grupo_status"] == valor_filtro]
-            elif tipo_filtro in ["status", "prioridade", "departamento", "tecnico", "cidade"]:
-                df_filtrado_dash = df_filtrado_dash[df_filtrado_dash[tipo_filtro].astype(str).str.strip().str.casefold() == str(valor_filtro).strip().casefold()]
+            elif tipo_filtro in ["status", "prioridade", "departamento", "tecnico"]:
+                df_filtrado_dash = df_filtrado_dash[df_filtrado_dash[tipo_filtro] == valor_filtro]
 
-            col_tit, col_btn = st.columns([8, 2])
-            with col_tit:
-                st.subheader(f"🎯 Chamados de {rotulo_periodo} Filtrados por **{tipo_filtro.capitalize()} = '{valor_filtro}'**")
-                st.caption(f"Mostrando {len(df_filtrado_dash)} de {len(df_op_base)} chamados do período.")
-            with col_btn:
-                st.button("❌ Limpar Filtro Clique", on_click=limpar_filtro_dash, type="primary", use_container_width=True, key="btn_clear_op")
+            st.info(f"🔍 **Filtro ativo:** {tipo_filtro.upper()} = **{valor_filtro}** ({len(df_filtrado_dash)} chamados em {rotulo_periodo})")
+            st.button("❌ Limpar Filtro de Gráfico/Card", on_click=limpar_filtro_dash, type="secondary")
         else:
-            st.subheader(f"📋 Lista de Chamados ({rotulo_periodo}) - {len(df_filtrado_dash)} chamados")
+            st.caption(f"Exibindo todos os {len(df_filtrado_dash)} chamados do período selecionado ({rotulo_periodo}).")
 
-        if df_filtrado_dash.empty:
-            st.warning("Nenhum chamado encontrado para este período/filtro.")
-        else:
-            cols_exibicao = ["id_chamado", "dt_abertura", "titulo", "solicitante", "departamento", "tecnico", "status", "prioridade"]
-            st.dataframe(df_filtrado_dash[cols_exibicao], use_container_width=True, hide_index=True)
+        # Exibição da tabela final da aba Operação
+        colunas_exibir = [
+            "id_chamado", "status", "solicitante", "titulo", 
+            "departamento", "tecnico", "prioridade", "data_hora_abertura"
+        ]
+        colunas_existentes = [c for c in colunas_exibir if c in df_filtrado_dash.columns]
+        
+        st.dataframe(
+            df_filtrado_dash[colunas_existentes].sort_values(by="id_chamado", ascending=False),
+            use_container_width=True,
+            hide_index=True
+        )
 
     # ============================================================
     # TAB: SLAs & MÉDIAS DE TEMPO
     # ============================================================
     with tab_sla:
-        st.subheader("⏱️ Indicadores Médios de SLA da Equipe (Operacional)")
-        st.caption("Exclui chamados de longo prazo (>= 5 dias) para manter a precisão das solicitações do dia a dia.")
-
-        df_sla_filtrado = df[
-            (df["sla_valido"] == True) & 
-            (df["tecnico"].astype(str).str.strip().isin(TECNICOS_PERMITIDOS)) &
-            (df["eh_roadmap"] == False)
-        ].copy()
-
-        if df_sla_filtrado.empty:
-            st.warning("⚠️ Nenhum chamado operacional (com as 3 datas e < 5 dias) foi encontrado para a equipe.")
+        st.caption("⏱️ Indicadores de tempo computados apenas para chamados com todas as datas preenchidas.")
+        
+        df_sla = df_op_base[df_op_base["sla_valido"] == True].copy()
+        
+        if df_sla.empty:
+            st.warning("Nenhum chamado no período possui as datas necessárias para o cálculo do SLA.")
         else:
-            med_assumir = df_sla_filtrado["min_ate_tecnico"].mean()
-            med_resolucao = df_sla_filtrado["min_resolucao"].mean()
-            med_total = df_sla_filtrado["min_total"].mean()
-
-            col_sla1, col_sla2, col_sla3 = st.columns(3)
-            with col_sla1:
-                st.metric("⏳ Média para Assumir", formatar_tempo(med_assumir))
-            with col_sla2:
-                st.metric("🔧 Média de Execução do Técnico", formatar_tempo(med_resolucao))
-            with col_sla3:
-                st.metric("🏁 Média de Tempo Total de Resolução", formatar_tempo(med_total))
-
-            st.divider()
-
-            # 1) TABELA DE MÉDIAS POR TÉCNICO
-            st.subheader("👨‍💻 Desempenho de SLA por Técnico (Operacional)")
-
-            rows_tec = []
-            for tec in TECNICOS_PERMITIDOS:
-                sub = df_sla_filtrado[df_sla_filtrado["tecnico"].astype(str).str.strip().str.casefold() == tec.casefold()]
-                
-                if not sub.empty:
-                    m_ass = sub["min_ate_tecnico"].mean()
-                    m_res = sub["min_resolucao"].mean()
-                    m_tot = sub["min_total"].mean()
-                    qtd = len(sub)
-                else:
-                    m_ass, m_res, m_tot = None, None, None
-                    qtd = 0
-
-                rows_tec.append({
-                    "Técnico": tec,
-                    "Média até Assumir": formatar_tempo(m_ass),
-                    "Média Execução Técnico": formatar_tempo(m_res),
-                    "Média Tempo Total": formatar_tempo(m_tot),
-                    "Chamados Operacionais": qtd
-                })
-
-            df_tec_table = pd.DataFrame(rows_tec)
-            st.dataframe(df_tec_table, use_container_width=True, hide_index=True)
-
-            st.divider()
-
-            # 2) MÉDIAS POR STATUS DO CHAMADO
-            st.subheader("📌 Médias de Tempo por Status do Chamado")
-            st.caption("Visão detalhada das médias específicas calculadas para cada status sem alterar o cálculo geral.")
-
-            df_status_sla = df[df["sla_valido"] == True].copy()
+            # Exclui chamados classificados como Roadmap dos tempos de SLA diário
+            df_sla_normal = df_sla[df_sla["eh_roadmap"] == False]
             
-            if not df_status_sla.empty:
-                rows_status = []
-                todos_status = sorted(list(set(df_status_sla["status"].replace("", "Sem Status").unique())), key=str.casefold)
+            t1, t2, t3, t4 = st.columns(4)
+            with t1:
+                st.metric("Chamados com SLA Válido", len(df_sla_normal))
+            with t2:
+                media_atencao = df_sla_normal["min_ate_tecnico"].mean()
+                st.metric("⏳ Média - Início do Atendimento", formatar_tempo(media_atencao))
+            with t3:
+                media_resolucao = df_sla_normal["min_resolucao"].mean()
+                st.metric("🔧 Média - Tempo de Execução", formatar_tempo(media_resolucao))
+            with t4:
+                media_total = df_sla_normal["min_total"].mean()
+                st.metric("🏁 Média - Tempo Total", formatar_tempo(media_total))
 
-                for st_nome in todos_status:
-                    sub_st = df_status_sla[df_status_sla["status"].replace("", "Sem Status").str.casefold() == st_nome.casefold()]
-                    m_ass_st = sub_st["min_ate_tecnico"].mean()
-                    m_res_st = sub_st["min_resolucao"].mean()
-                    m_tot_st = sub_st["min_total"].mean()
-                    qtd_st = len(sub_st)
+            st.divider()
 
-                    rows_status.append({
-                        "Status do Chamado": st_nome,
-                        "Média até Assumir": formatar_tempo(m_ass_st),
-                        "Média Execução Técnico": formatar_tempo(m_res_st),
-                        "Média Tempo Total": formatar_tempo(m_tot_st),
-                        "Qtd. Chamados": qtd_st
-                    })
+            col_sla1, col_sla2 = st.columns(2)
+            with col_sla1:
+                st.subheader("👨‍💻 Tempo Médio Total por Técnico")
+                df_tec_sla = df_sla_normal.groupby("tecnico")["min_total"].mean().reset_index()
+                df_tec_sla["tempo_formatado"] = df_tec_sla["min_total"].apply(formatar_tempo)
+                
+                fig_tec_sla = px.bar(
+                    df_tec_sla, x="tecnico", y="min_total",
+                    text="tempo_formatado", color="min_total",
+                    labels={"min_total": "Minutos", "tecnico": "Técnico"}
+                )
+                fig_tec_sla.update_layout(showlegend=False)
+                st.plotly_chart(aplicar_layout_plotly(fig_tec_sla), use_container_width=True)
 
-                df_status_table = pd.DataFrame(rows_status)
-                st.dataframe(df_status_table, use_container_width=True, hide_index=True)
-
-        st.divider()
-
-        # ============================================================
-        # SEÇÃO INFERIOR: ROADMAPS
-        # ============================================================
-        st.subheader("🗺️ Chamados em Roadmap (>= 5 dias)")
-        st.caption("Esta seção exibe apenas os chamados longos que possuem os 3 campos de data obrigatoriamente preenchidos na planilha.")
-
-        df_roadmaps_validos = df[
-            (df["eh_roadmap"] == True) & 
-            (df["tem_3_datas"] == True)
-        ].copy()
-
-        if df_roadmaps_validos.empty:
-            st.info("ℹ️ Não há nenhum chamado de Roadmap (>= 5 dias) com as **3 datas preenchidas** no momento.")
-        else:
-            st.success(f"✅ Exibindo **{len(df_roadmaps_validos)}** chamado(s) em Roadmap que possuem os 3 registros de data completos:")
-
-            df_roadmaps_validos["Tempo Total Conclusão"] = df_roadmaps_validos["min_total"].apply(formatar_tempo)
-            df_roadmaps_validos["Tempo Execução Técnico"] = df_roadmaps_validos["min_resolucao"].apply(formatar_tempo)
-            df_roadmaps_validos["Tempo até Assumir"] = df_roadmaps_validos["min_ate_tecnico"].apply(formatar_tempo)
-
-            cols_show_roadmap = [
-                "id_chamado", "titulo", "solicitante", "departamento", 
-                "tecnico", "status", "Tempo até Assumir", "Tempo Execução Técnico", "Tempo Total Conclusão"
-            ]
-            st.dataframe(df_roadmaps_validos[cols_show_roadmap], use_container_width=True, hide_index=True)
+            with col_sla2:
+                st.subheader("🏢 Tempo Médio de Resolução por Departamento")
+                df_dep_sla = df_sla_normal.groupby("departamento")["min_resolucao"].mean().reset_index()
+                df_dep_sla["tempo_formatado"] = df_dep_sla["min_resolucao"].apply(formatar_tempo)
+                
+                fig_dep_sla = px.bar(
+                    df_dep_sla, x="min_resolucao", y="departamento",
+                    orientation="h", text="tempo_formatado",
+                    labels={"min_resolucao": "Minutos", "departamento": "Departamento"}
+                )
+                fig_dep_sla.update_layout(yaxis=dict(autorange="reversed"))
+                st.plotly_chart(aplicar_layout_plotly(fig_dep_sla), use_container_width=True)
 
     # ============================================================
-    # TAB: SATISFAÇÃO & CSAT
+    # TAB: SATISFAÇÃO & NOTAS (CSAT)
     # ============================================================
     with tab_csat:
-        st.subheader("⭐ Indicadores de Satisfação (CSAT)")
-        df_avaliados = df[df["nota_num"].notna() & (df["nota_num"] > 0)].copy()
-
-        if df_avaliados.empty:
-            st.info("Nenhuma avaliação de atendimento registrada até o momento.")
+        st.caption("⭐ Indicadores de satisfação (CSAT) com base nas avaliações enviadas pelos usuários.")
+        
+        df_csat = df_op_base[df_op_base["nota_num"].notna() & (df_op_base["nota_num"] > 0)].copy()
+        
+        if df_csat.empty:
+            st.info("Ainda não há avaliações registradas para o período selecionado.")
         else:
-            csat_medio = df_avaliados["nota_num"].mean()
-            total_avals = len(df_avaliados)
-            pct_satisfeitos = (len(df_avaliados[df_avaliados["nota_num"] >= 4]) / total_avals) * 100
+            media_geral = df_csat["nota_num"].mean()
+            total_avaliados = len(df_csat)
+            pct_satisfeitos = (len(df_csat[df_csat["nota_num"] >= 4]) / total_avaliados * 100) if total_avaliados > 0 else 0
 
             c1, c2, c3 = st.columns(3)
-            with c1: st.metric("⭐ Nota Média CSAT", f"{csat_medio:.2f} / 5.0")
-            with c2: st.metric("📊 Total de Avaliações", total_avals)
-            with c3: st.metric("👍 Taxa de Satisfação (Notas 4 e 5)", f"{pct_satisfeitos:.1f}%")
+            with c1:
+                st.metric("⭐ Nota Média Geral", f"{media_geral:.2f} / 5.0")
+            with c2:
+                st.metric("📋 Total de Avaliações", total_avaliados)
+            with c3:
+                st.metric("😊 Taxa de Satisfação (Notas 4 e 5)", f"{pct_satisfeitos:.1f}%")
 
             st.divider()
-            st.subheader("📊 Distribuição de Notas")
-            df_dist = df_avaliados["nota_num"].value_counts().reset_index()
-            df_dist.columns = ["Nota", "Quantidade"]
-            fig_dist = px.bar(df_dist, x="Nota", y="Quantidade", text="Quantidade", color="Nota")
-            st.plotly_chart(aplicar_layout_plotly(fig_dist), use_container_width=True)
+
+            col_c1, col_c2 = st.columns(2)
+            with col_c1:
+                st.subheader("📊 Distribuição das Notas")
+                dist_notas = df_csat["nota_num"].value_counts().sort_index(ascending=False).reset_index()
+                dist_notas.columns = ["Nota", "Quantidade"]
+                dist_notas["Nota_Str"] = dist_notas["Nota"].apply(lambda x: "⭐" * int(x))
+                
+                fig_dist = px.bar(
+                    dist_notas, x="Quantidade", y="Nota_Str",
+                    orientation="h", text="Quantidade",
+                    color="Nota", color_continuous_scale="Blues"
+                )
+                fig_dist.update_layout(showlegend=False, yaxis_title="Avaliação")
+                st.plotly_chart(aplicar_layout_plotly(fig_dist), use_container_width=True)
+
+            with col_c2:
+                st.subheader("👨‍💻 Nota Média por Técnico")
+                df_tec_csat = df_csat.groupby("tecnico")["nota_num"].agg(["mean", "count"]).reset_index()
+                df_tec_csat.columns = ["Técnico", "Nota Média", "Avaliações"]
+                df_tec_csat["Nota Média"] = df_tec_csat["Nota Média"].round(2)
+                
+                fig_tec_csat = px.bar(
+                    df_tec_csat, x="Técnico", y="Nota Média",
+                    text="Nota Média", color="Nota Média",
+                    range_y=[0, 5], color_continuous_scale="Blues"
+                )
+                st.plotly_chart(aplicar_layout_plotly(fig_tec_csat), use_container_width=True)
 
     # ============================================================
-    # TAB: FEED DE REVIEWS & FEEDBACK (COM FILTROS DE NOTA E ORDENAÇÃO)
-    # ============================================================
- # ============================================================
-    # TAB: FEED DE REVIEWS & FEEDBACK (COMPATÍVEL COM DARK/LIGHT MODE)
+    # TAB: FEED DE REVIEWS & FEEDBACK
     # ============================================================
     with tab_reviews:
-        st.subheader("💬 Feedbacks e Comentários dos Solicitantes")
+        st.caption("💬 Listagem dos comentários recentes deixados pelos solicitantes.")
         
-        # Filtrar chamados que possuem comentários válidos
-        df_coments = df[
-            df["comentario_avaliacao"].notna() & 
-            (df["comentario_avaliacao"].astype(str).str.strip() != "") & 
-            (df["comentario_avaliacao"].astype(str).str.strip().str.casefold() != "nan")
+        df_feed = df_op_base[
+            df_op_base["comentario_avaliacao"].notna() & 
+            (df_op_base["comentario_avaliacao"].str.strip() != "") &
+            (df_op_base["comentario_avaliacao"].str.casefold() != "nan")
         ].copy()
 
-        if df_coments.empty:
-            st.info("Nenhum comentário por escrito registrado nas avaliações até o momento.")
+        if df_feed.empty:
+            st.info("Nenhum comentário por escrito foi registrado no período selecionado.")
         else:
-            # CONTROLES DE FILTRO E ORDENAÇÃO
-            rf1, rf2, rf3 = st.columns([2, 2, 3])
+            df_feed = df_feed.sort_values(by="dt_aval_parsed", ascending=False)
             
-            with rf1:
-                filtro_nota = st.selectbox(
-                    "⭐ Filtrar por Nota",
-                    options=["Todas as Notas", "5 Estrelas", "4 Estrelas", "3 Estrelas", "2 Estrelas", "1 Estrela"]
-                )
-            
-            with rf2:
-                ordem_data = st.selectbox(
-                    "📅 Ordenar por Data",
-                    options=["Mais recentes primeiro", "Mais antigas primeiro"]
-                )
-                
-            with rf3:
-                termo_busca = st.text_input("🔍 Buscar no comentário", placeholder="Ex.: rápido, bom, impressora...")
-
-            # APLICAÇÃO DOS FILTROS
-            if filtro_nota != "Todas as Notas":
-                nota_alvo = int(filtro_nota.split()[0])
-                df_coments = df_coments[df_coments["nota_num"] == nota_alvo]
-
-            if termo_busca.strip():
-                df_coments = df_coments[
-                    df_coments["comentario_avaliacao"].astype(str).str.contains(termo_busca.strip(), case=False, na=False)
-                ]
-
-            # ORDENAÇÃO
-            ascendente = True if ordem_data == "Mais antigas primeiro" else False
-            df_coments = df_coments.sort_values(by="dt_aval_parsed", ascending=ascendente, na_position="last")
-
-            st.caption(f"Exibindo **{len(df_coments)}** comentário(s):")
-            st.divider()
-
-            if df_coments.empty:
-                st.warning("Nenhum comentário encontrado com os filtros selecionados.")
-            else:
-                for idx, r in df_coments.reset_index(drop=True).iterrows():
-                    solic = r.get('solicitante', 'Anônimo')
-                    if not solic or solic.casefold() == "nan":
-                        solic = "Solicitante Anônimo"
-
-                    dt_str = str(r.get('data_avaliacao', '')).strip()
-                    if not dt_str or dt_str.casefold() == "nan":
-                        if pd.notna(r.get('dt_conclusao_efetiva')):
-                            dt_str = r['dt_conclusao_efetiva'].strftime("%d/%m/%Y")
-                        else:
-                            dt_str = "Data N/A"
-
-                    estrelas_str = render_estrelas(r["nota_num"]) if pd.notna(r.get("nota_num")) else "Sem nota"
-
-                    with st.container(border=True):
-                        # Cabeçalho do Card
-                        st.markdown(f"**🎫 Chamado #{r['id_chamado']}** | 👤 **{solic}**")
-                        st.caption(f"⭐ **Nota:** {estrelas_str}  •  🗓️ **Data:** {dt_str}")
-
-                        # Citação legível tanto no Dark quanto no Light mode
-                        st.chat_message("user").markdown(f"*{r['comentario_avaliacao']}*")
-
-                        st.caption(f"🏢 Depto: **{r.get('departamento', '-')}** | 👨‍💻 Técnico: **{r.get('tecnico', '-')}**")
+            for _, row in df_feed.iterrows():
+                with st.container(border=True):
+                    f_col1, f_col2 = st.columns([8, 2])
+                    with f_col1:
+                        estrelas_txt = render_estrelas(row.get("nota_num", 5)) or "⭐⭐⭐⭐⭐"
+                        st.markdown(f"**🎫 Chamado #{row['id_chamado']} - {row.get('titulo', 'Sem título')}**")
+                        st.markdown(f"*{estrelas_txt}* — **{row.get('solicitante', 'Anônimo')}** ({row.get('departamento', '-')})")
+                        st.write(f'💬 *"{row["comentario_avaliacao"]}"*')
+                    with f_col2:
+                        st.caption("👨‍💻 **Técnico:**")
+                        st.write(row.get("tecnico", "-"))
+                        dt_str = row["dt_aval_parsed"].strftime("%d/%m/%Y") if pd.notna(row["dt_aval_parsed"]) else "-"
+                        st.caption(f"📅 {dt_str}")
