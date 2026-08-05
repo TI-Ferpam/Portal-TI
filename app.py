@@ -106,6 +106,9 @@ def carregar_dados():
             df_raw[col] = df_raw[col].fillna("").astype(str).str.strip()
             df_raw[col] = df_raw[col].replace({"nan": "", "None": "", "null": "", "<NA>": ""})
 
+        # --- FILTRO PARA REMOVER MATHEUS NUNES DA BASE COMPLETA ---
+        df_raw = df_raw[~df_raw["tecnico"].str.casefold().str.contains("matheus nunes", na=False)]
+
         nota_limpa = df_raw["nota_atendimento"].astype(str).str.replace(",", ".", regex=False).str.strip()
         df_raw["nota_num"] = pd.to_numeric(nota_limpa, errors="coerce")
 
@@ -130,7 +133,7 @@ def carregar_dados():
         df_raw["min_ate_tecnico"] = (df_raw["dt_tecnico"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
         df_raw["min_resolucao"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_tecnico"]).dt.total_seconds() / 60.0
 
-        # OBRIGATORIEDADE DE TER AS 3 DATAS PREENCHIDAS E VÁLIDAS PARA SLA
+        # OBRIGATORIEDADE RIGOROSA: AS 3 DATAS DEVEM ESTAR PREENCHIDAS E VÁLIDAS
         df_raw["tem_3_datas"] = (
             df_raw["dt_abertura"].notna() & 
             df_raw["dt_tecnico"].notna() & 
@@ -540,7 +543,7 @@ if st.session_state.tela == "dashboard":
     ])
 
     # ============================================================
-    # TAB 1: OPERAÇÃO & VOLUMETRIA (SEM FILTRO RIGIDO DE TECNICOS)
+    # TAB 1: OPERAÇÃO & VOLUMETRIA
     # ============================================================
     with tab_op:
         st.caption("⚡ **Filtre por Ano/Mês** ou clique nos gráficos para detalhar a operação!")
@@ -675,15 +678,16 @@ if st.session_state.tela == "dashboard":
         st.dataframe(df_filtrado_dash[cols_vis], use_container_width=True, hide_index=True)
 
     # ============================================================
-    # TAB 2: SLAS & MÉDIAS DE TEMPO (APENAS AQUI SEPARA O ROADMAP)
+    # TAB 2: SLAS & MÉDIAS DE TEMPO (3 DATAS VÁLIDAS EXIGIDAS)
     # ============================================================
     with tab_sla:
         st.subheader("⏱️ Métricas de SLA (Exige as 3 datas preenchidas)")
-        st.caption("ℹ️ Chamados acima de **6 dias** são considerados **Roadmap** e são **excluídos da Média Total Operacional** para não inflar o indicador da equipe.")
+        st.caption("ℹ️ **Atribuição, Execução e Conclusão** dependem exclusivamente de chamados com todas as 3 datas válidas. Chamados acima de **6 dias** são computados em **Roadmap** separadamente.")
 
+        # FILTRO RÍGIDO: SÓ CONSIDERA CHAMADOS COM AS 3 DATAS
         df_sla = df[df["sla_valido"] == True]
 
-        # SEPARAÇÃO EXCLUSIVA DE ROADMAP VS OPERAÇÃO PADRÃO NO SLA
+        # SEPARAÇÃO EXCLUSIVA DE ROADMAP VS OPERAÇÃO PADRÃO
         df_sla_padrao = df_sla[df_sla["eh_roadmap"] == False]
         df_sla_roadmap = df_sla[df_sla["eh_roadmap"] == True]
 
