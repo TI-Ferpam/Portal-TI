@@ -1,6 +1,6 @@
 import pandas as pd
-import plotly.express as px
 import streamlit as st
+import plotly.express as px
 from services.sheets import carregar_chamados
 
 # ============================================================
@@ -14,6 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Filtro estrito por técnicos solicitados
 TECNICOS_PERMITIDOS = ["Matheus Juliati", "Jair de Alcantara"]
 LIMITE_ROADMAP_MINUTOS = 5 * 24 * 60  # 5 dias em minutos = 7200 min
 
@@ -24,7 +25,7 @@ MESES_DIC = {
 }
 
 # ============================================================
-# FUNÇÃO AUXILIAR DE FORMATAÇÃO DE TEMPO
+# FUNÇÕES AUXILIARES
 # ============================================================
 
 def formatar_tempo(minutos):
@@ -51,7 +52,7 @@ def formatar_tempo(minutos):
 def carregar_dados():
     colunas_obrigatorias = [
         "id_chamado", "solicitante", "titulo", "ocorrencia", "status",
-        "prioridade", "departamento", "tecnico", "cidade",
+        "prioridade", "tecnico", "cidade",
         "atividade_realizada", "nota_atendimento", "data_avaliacao", "comentario_avaliacao",
         "data_hora_abertura", "data_inicial", "data_tecnico", "data_conclusao", "data_final"
     ]
@@ -70,7 +71,6 @@ def carregar_dados():
             df_empty["nota_num"] = pd.Series(dtype=float)
             df_empty["sla_valido"] = pd.Series(dtype=bool)
             df_empty["eh_roadmap"] = pd.Series(dtype=bool)
-            df_empty["tem_3_datas"] = pd.Series(dtype=bool)
             df_empty["ano_abertura"] = pd.Series(dtype=float)
             df_empty["mes_num_abertura"] = pd.Series(dtype=float)
             df_empty["mes_nome_abertura"] = pd.Series(dtype=str)
@@ -102,14 +102,17 @@ def carregar_dados():
                 df_raw[col] = ""
 
         for col in ["id_chamado", "solicitante", "titulo", "ocorrencia", "status", 
-                    "prioridade", "departamento", "tecnico", "cidade", "atividade_realizada"]:
+                    "prioridade", "tecnico", "cidade", "atividade_realizada"]:
             df_raw[col] = df_raw[col].fillna("").astype(str).str.strip()
             df_raw[col] = df_raw[col].replace({"nan": "", "None": "", "null": "", "<NA>": ""})
+
+        # Apenas os dois técnicos permitidos
+        df_raw = df_raw[df_raw["tecnico"].isin(TECNICOS_PERMITIDOS)].copy()
 
         nota_limpa = df_raw["nota_atendimento"].astype(str).str.replace(",", ".", regex=False).str.strip()
         df_raw["nota_num"] = pd.to_numeric(nota_limpa, errors="coerce")
 
-        # Tratamento flexível de Datas (dayfirst=True para formato brasileiro DD/MM/YYYY)
+        # Tratamento de Datas
         df_raw["dt_abertura"] = pd.to_datetime(df_raw["data_hora_abertura"], dayfirst=True, errors="coerce").fillna(
             pd.to_datetime(df_raw["data_inicial"], dayfirst=True, errors="coerce")
         )
@@ -118,43 +121,30 @@ def carregar_dados():
             pd.to_datetime(df_raw["data_final"], dayfirst=True, errors="coerce")
         )
         
-        # Data de avaliação formatada para ordenação
         df_raw["dt_aval_parsed"] = pd.to_datetime(df_raw["data_avaliacao"], dayfirst=True, errors="coerce").fillna(df_raw["dt_conclusao_efetiva"])
 
-        # Campos auxiliares para filtro de Mês/Ano
         df_raw["ano_abertura"] = df_raw["dt_abertura"].dt.year
         df_raw["mes_num_abertura"] = df_raw["dt_abertura"].dt.month
         df_raw["mes_nome_abertura"] = df_raw["mes_num_abertura"].map(MESES_DIC)
 
-        # Checagem flexível de datas
+        # Tempos em minutos
         df_raw["min_total"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
         df_raw["min_ate_tecnico"] = (df_raw["dt_tecnico"] - df_raw["dt_abertura"]).dt.total_seconds() / 60.0
         df_raw["min_resolucao"] = (df_raw["dt_conclusao_efetiva"] - df_raw["dt_tecnico"]).dt.total_seconds() / 60.0
 
-        # Regra de SLA Válido: Ter ao menos abertura e conclusão coerentes (tempo total >= 0)
         df_raw["sla_valido"] = (
             df_raw["dt_abertura"].notna() &
             df_raw["dt_conclusao_efetiva"].notna() &
             (df_raw["min_total"] >= 0)
         )
 
-        # MARCAÇÃO DE ROADMAP (>= 5 dias)
         df_raw["eh_roadmap"] = (df_raw["min_total"] >= LIMITE_ROADMAP_MINUTOS)
 
         return df_raw
 
     except Exception as e:
         st.error(f"Erro ao carregar dados da planilha: {e}")
-        df_err = pd.DataFrame(columns=colunas_obrigatorias)
-        df_err["nota_num"] = pd.Series(dtype=float)
-        df_err["sla_valido"] = pd.Series(dtype=bool)
-        df_err["eh_roadmap"] = pd.Series(dtype=bool)
-        df_err["tem_3_datas"] = pd.Series(dtype=bool)
-        df_err["ano_abertura"] = pd.Series(dtype=float)
-        df_err["mes_num_abertura"] = pd.Series(dtype=float)
-        df_err["mes_nome_abertura"] = pd.Series(dtype=str)
-        df_err["dt_aval_parsed"] = pd.Series(dtype="datetime64[ns]")
-        return df_err
+        return pd.DataFrame(columns=colunas_obrigatorias)
 
 df = carregar_dados()
 
@@ -177,10 +167,10 @@ def classificar_status_grupo(status_str):
         return "Abertos"
 
 # ============================================================
-# ESTADOS DA SESSÃO E AUXILIARES
+# ESTADOS DA SESSÃO
 # ============================================================
 
-for key, val in [("tela", "busca"), ("ticket_aberto", None), ("autenticado_admin", False), ("filtro_dash_tipo", None), ("filtro_dash_valor", None)]:
+for key, val in [("tela", "busca"), ("ticket_aberto", None), ("autenticado_admin", False), ("filtro_tec", "Todos")]:
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -192,11 +182,6 @@ def voltar_busca():
     st.session_state.ticket_aberto = None
     st.session_state.tela = "busca"
 
-def limpar_filtro_dash():
-    st.session_state.filtro_dash_tipo = None
-    st.session_state.filtro_dash_valor = None
-
-lista_solicitantes_admin = sorted(list(set([s for s in df["solicitante"].unique() if s and s.casefold() != "nan"])), key=str.casefold)
 lista_status_opcoes = ["Todos os Status"] + sorted(list(set([s for s in df["status"].unique() if s and s.casefold() != "nan"])), key=str.casefold)
 
 AZUL_FERPAM = "#003399"
@@ -240,7 +225,6 @@ else:
     if st.sidebar.button("🚪 Sair do Modo Admin", use_container_width=True):
         st.session_state.autenticado_admin = False
         st.session_state.tela = "busca"
-        limpar_filtro_dash()
         st.rerun()
 
 st.sidebar.divider()
@@ -256,7 +240,7 @@ elif opcao_menu == "🔍 Consultar Chamados" and st.session_state.tela == "dashb
     st.session_state.tela = "busca"
 
 # ============================================================
-# FUNÇÕES DE RENDERIZAÇÃO
+# FUNÇÕES DE RENDERIZAÇÃO DE STATUS/BARRA
 # ============================================================
 
 def calcular_progresso(chamado):
@@ -288,33 +272,6 @@ def render_barra_progresso(pct, texto_estagio):
     </div>
     """
 
-def render_estrelas(nota):
-    try:
-        val = max(1, min(5, int(float(nota))))
-        return "⭐" * val + "☆" * (5 - val) + f" ({val}/5)"
-    except (ValueError, TypeError):
-        return None
-
-def extrair_valor_clicado(event):
-    if not event or "selection" not in event: return None
-    points = event["selection"].get("points", [])
-    if not points: return None
-    p = points[0]
-    if "customdata" in p and p["customdata"]:
-        val = p["customdata"]
-        return str(val[0]).strip() if isinstance(val, list) else str(val).strip()
-    if "label" in p and p["label"] is not None: return str(p["label"]).strip()
-    if "y" in p and isinstance(p["y"], str) and p["y"]: return str(p["y"]).strip()
-    if "x" in p and isinstance(p["x"], str) and p["x"]: return str(p["x"]).strip()
-    return None
-
-def processar_clique_grafico(event, tipo_filtro):
-    val = extrair_valor_clicado(event)
-    if val and (st.session_state.filtro_dash_tipo != tipo_filtro or st.session_state.filtro_dash_valor != val):
-        st.session_state.filtro_dash_tipo = tipo_filtro
-        st.session_state.filtro_dash_valor = val
-        st.rerun()
-
 # ============================================================
 # TELA DETALHES DO TICKET
 # ============================================================
@@ -336,7 +293,7 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
     st.markdown(render_barra_progresso(percentual, etapa_nome), unsafe_allow_html=True)
     st.divider()
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
         st.markdown("**Status Atual**")
         st.markdown(get_status_badge(chamado["status"]), unsafe_allow_html=True)
@@ -346,17 +303,12 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
     with col2:
         st.markdown("**⚠️ Prioridade**")
         st.write(chamado.get("prioridade", "-"))
-        st.markdown("**🏢 Departamento**")
-        st.write(chamado.get("departamento", "-"))
-    with col3:
         st.markdown("**👨‍💻 Técnico Responsável**")
-        st.write(chamado.get("tecnico", "Ainda não atribuído"))
-        st.markdown("**📍 Cidade**")
-        st.write(chamado.get("cidade", "-"))
+        st.write(chamado.get("tecnico", "-"))
 
     st.divider()
 
-    st.subheader("⏱️ Tempos de Atendimento do Chamado")
+    st.subheader("⏱️ Tempos de Atendimento")
     if chamado.get("sla_valido"):
         t1, t2, t3 = st.columns(3)
         with t1:
@@ -379,25 +331,6 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
         st.subheader("🔧 Resolução / Atividade Realizada")
         atividade = str(chamado.get("atividade_realizada", "")).strip()
         st.success(atividade if atividade and atividade.casefold() != "nan" else "Ainda não há atividades registradas para este chamado.")
-
-    nota = chamado.get("nota_atendimento", "")
-    data_aval = str(chamado.get("data_avaliacao", "")).strip()
-    coment_aval = str(chamado.get("comentario_avaliacao", "")).strip()
-
-    if (pd.notna(chamado.get("nota_num")) and chamado.get("nota_num") > 0) or (coment_aval and coment_aval.casefold() != "nan"):
-        st.divider()
-        st.subheader("⭐ Avaliação do Atendimento")
-        col_eval1, col_eval2 = st.columns([1, 2])
-        with col_eval1:
-            if pd.notna(chamado.get("nota_num")):
-                estrelas = render_estrelas(chamado["nota_num"])
-                if estrelas: st.markdown(f"### {estrelas}")
-            if data_aval and data_aval.casefold() != "nan":
-                st.caption(f"🗓️ Avaliado em: {data_aval}")
-        with col_eval2:
-            if coment_aval and coment_aval.casefold() != "nan":
-                st.markdown("💬 **Comentário do Solicitante:**")
-                st.write(f'"{coment_aval}"')
     st.stop()
 
 # ============================================================
@@ -406,85 +339,43 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
 
 if st.session_state.tela == "busca":
     st.title("🎫 Portal de Consulta de Chamados")
-    if not st.session_state.autenticado_admin:
-        st.write("Digite o **Número do Chamado** ou o **Seu Nome** e escolha o status para consultar.")
-        c1, c2, c3 = st.columns([1.5, 2, 1.5])
-        with c1: input_ticket = st.text_input("Número do Chamado", placeholder="Ex.: 933")
-        with c2: input_nome = st.text_input("Seu Nome (Solicitante)", placeholder="Ex.: Carla")
-        with c3: input_status = st.selectbox("Status / Pendência", options=lista_status_opcoes, key="usr_status")
-        btn_pesquisar = st.button("🔍 Pesquisar Chamado", type="primary", use_container_width=True)
+    
+    c1, c2, c3 = st.columns([1.5, 2, 1.5])
+    with c1: input_ticket = st.text_input("Número do Chamado", placeholder="Ex.: 933")
+    with c2: input_tec = st.selectbox("Filtrar por Técnico", options=["Todos"] + TECNICOS_PERMITIDOS)
+    with c3: input_status = st.selectbox("Status", options=lista_status_opcoes)
+    
+    res = df.copy()
+    if input_ticket.strip(): res = res[res["id_chamado"].str.contains(input_ticket.strip(), case=False, na=False)]
+    if input_tec != "Todos": res = res[res["tecnico"].str.casefold() == input_tec.casefold()]
+    if input_status != "Todos os Status": res = res[res["status"].str.casefold() == input_status.casefold()]
 
-        if btn_pesquisar or input_ticket.strip() or input_nome.strip() or input_status != "Todos os Status":
-            res = df.copy()
-            if input_ticket.strip(): res = res[res["id_chamado"].str.contains(input_ticket.strip(), case=False, na=False)]
-            if input_nome.strip(): res = res[res["solicitante"].str.contains(input_nome.strip(), case=False, na=False)]
-            if input_status != "Todos os Status": res = res[res["status"].str.casefold() == input_status.casefold()]
-
-            st.divider()
-            if not input_ticket.strip() and not input_nome.strip() and input_status == "Todos os Status":
-                st.info("💡 Informe o número do ticket, seu nome ou escolha um status para iniciar.")
-            elif res.empty:
-                st.warning("Nenhum chamado foi encontrado com esses critérios.")
-            else:
-                st.subheader(f"Localizado(s) {len(res)} chamado(s):")
-                for idx, cham in res.reset_index(drop=True).iterrows():
-                    t_id = str(cham["id_chamado"]).strip()
-                    pct, status_txt = calcular_progresso(cham)
-                    badge_html = get_status_badge(cham.get("status", ""))
-                    bar_html = render_barra_progresso(pct, status_txt)
-                    with st.container(border=True):
-                        col1, col2 = st.columns([7, 3])
-                        with col1:
-                            st.markdown(f"""
-                            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
-                                <span style="font-size: 1.2rem; font-weight: 800;">🎫 #{t_id}</span>
-                                {badge_html}
-                            </div>
-                            <div style="font-size: 1rem; font-weight: 700; margin-bottom: 4px;">{cham.get('titulo', 'Sem título')}</div>
-                            <div style="font-size: 0.85rem; color: #64748b;">👤 {cham.get('solicitante', '-')} | 🏢 {cham.get('departamento', '-')}</div>
-                            """, unsafe_allow_html=True)
-                            st.markdown(bar_html, unsafe_allow_html=True)
-                        with col2:
-                            st.write("")
-                            st.write("")
-                            st.button("👁️ Ver detalhes", key=f"btn_usr_{t_id}_{idx}", on_click=abrir_ticket, args=(t_id,), use_container_width=True)
+    st.divider()
+    if res.empty:
+        st.warning("Nenhum chamado foi encontrado com esses critérios.")
     else:
-        st.write("🔧 **Painel Admin**: Filtragem global de chamados.")
-        c1, c2, c3 = st.columns([1.5, 2, 1.5])
-        with c1: input_ticket_admin = st.text_input("Número do Ticket", placeholder="Ex.: 933")
-        with c2: input_solic_admin = st.selectbox("Filtrar por Solicitante", options=["Todos"] + lista_solicitantes_admin)
-        with c3: input_status_admin = st.selectbox("Status / Pendência", options=lista_status_opcoes, key="adm_status")
-        res = df.copy()
-        if input_ticket_admin.strip(): res = res[res["id_chamado"].str.contains(input_ticket_admin.strip(), case=False, na=False)]
-        if input_solic_admin != "Todos": res = res[res["solicitante"].str.casefold() == input_solic_admin.casefold()]
-        if input_status_admin != "Todos os Status": res = res[res["status"].str.casefold() == input_status_admin.casefold()]
-
-        st.divider()
-        if res.empty:
-            st.warning("Nenhum chamado encontrado com estes filtros.")
-        else:
-            st.subheader(f"Total na consulta: {len(res)} chamado(s)")
-            for idx, cham in res.reset_index(drop=True).iterrows():
-                t_id = str(cham["id_chamado"]).strip()
-                pct, status_txt = calcular_progresso(cham)
-                badge_html = get_status_badge(cham.get("status", ""))
-                bar_html = render_barra_progresso(pct, status_txt)
-                with st.container(border=True):
-                    col1, col2 = st.columns([7, 3])
-                    with col1:
-                        st.markdown(f"""
-                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
-                            <span style="font-size: 1.2rem; font-weight: 800;">🎫 #{t_id}</span>
-                            {badge_html}
-                        </div>
-                        <div style="font-size: 1rem; font-weight: 700;">{cham.get('titulo', 'Sem título')}</div>
-                        <div style="font-size: 0.85rem; color: #64748b;">👤 {cham.get('solicitante', '-')} | 🏢 {cham.get('departamento', '-')}</div>
-                        """, unsafe_allow_html=True)
-                        st.markdown(bar_html, unsafe_allow_html=True)
-                    with col2:
-                        st.write("")
-                        st.write("")
-                        st.button("👁️ Ver detalhes", key=f"btn_adm_{t_id}_{idx}", on_click=abrir_ticket, args=(t_id,), use_container_width=True)
+        st.subheader(f"Localizado(s) {len(res)} chamado(s):")
+        for idx, cham in res.reset_index(drop=True).iterrows():
+            t_id = str(cham["id_chamado"]).strip()
+            pct, status_txt = calcular_progresso(cham)
+            badge_html = get_status_badge(cham.get("status", ""))
+            bar_html = render_barra_progresso(pct, status_txt)
+            with st.container(border=True):
+                col1, col2 = st.columns([7, 3])
+                with col1:
+                    st.markdown(f"""
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
+                        <span style="font-size: 1.2rem; font-weight: 800;">🎫 #{t_id}</span>
+                        {badge_html}
+                    </div>
+                    <div style="font-size: 1rem; font-weight: 700; margin-bottom: 4px;">{cham.get('titulo', 'Sem título')}</div>
+                    <div style="font-size: 0.85rem; color: #64748b;">👤 {cham.get('solicitante', '-')} | 👨‍💻 {cham.get('tecnico', '-')}</div>
+                    """, unsafe_allow_html=True)
+                    st.markdown(bar_html, unsafe_allow_html=True)
+                with col2:
+                    st.write("")
+                    st.write("")
+                    st.button("👁️ Ver detalhes", key=f"btn_usr_{t_id}_{idx}", on_click=abrir_ticket, args=(t_id,), use_container_width=True)
 
 # ============================================================
 # TELA DASHBOARD DE INDICADORES
@@ -492,313 +383,104 @@ if st.session_state.tela == "busca":
 
 if st.session_state.tela == "dashboard":
     if not st.session_state.autenticado_admin:
-        st.error("⛔ Acesso Negado! Faça login como admin no menu lateral para visualizar o Dashboard.")
+        st.error("⛔ Acesso Negado! Faça login como admin no menu lateral.")
         st.stop()
 
-    st.title("📊 Dashboard & Indicadores de TI")
-    def aplicar_layout_plotly(fig):
-        fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin=dict(t=30, b=20, l=20, r=20))
-        return fig
+    st.title("📊 Painel de Indicadores de TI")
 
-    tab_op, tab_sla, tab_csat, tab_reviews = st.tabs([
-        "📊 Operação & Volumetria", 
-        "⏱️ SLAs & Médias de Tempo",
-        "⭐ Satisfação & Notas (CSAT)", 
-        "💬 Feed de Reviews & Feedback"
-    ])
-
-    # ============================================================
-    # FILTRO GLOBAL DE PERÍODO (COMPARTILHADO ENTRE ABAS)
-    # ============================================================
+    # FILTROS
     anos_disponiveis = sorted([int(a) for a in df["ano_abertura"].dropna().unique()], reverse=True)
     opcoes_anos = ["Todos os Anos"] + anos_disponiveis
     
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🗓️ Filtro de Período Global")
+    st.sidebar.markdown("### 🗓️ Filtro de Período")
     ano_sel = st.sidebar.selectbox("📅 Escolha o Ano", options=opcoes_anos, index=0)
 
-    if ano_sel == "Todos os Anos":
-        df_ano = df.copy()
-    else:
-        df_ano = df[df["ano_abertura"] == ano_sel]
-
+    df_ano = df.copy() if ano_sel == "Todos os Anos" else df[df["ano_abertura"] == ano_sel]
     meses_nums = sorted([int(m) for m in df_ano["mes_num_abertura"].dropna().unique()])
     opcoes_meses = ["Todos os Meses"] + [MESES_DIC[m] for m in meses_nums if m in MESES_DIC]
-
     mes_sel = st.sidebar.selectbox("🗓️ Escolha o Mês", options=opcoes_meses, index=0)
 
-    df_op_base = df_ano.copy()
+    df_base = df_ano.copy()
     if mes_sel != "Todos os Meses":
-        df_op_base = df_op_base[df_op_base["mes_nome_abertura"] == mes_sel]
+        df_base = df_base[df_base["mes_nome_abertura"] == mes_sel]
 
-    # ============================================================
-    # TAB: OPERAÇÃO & VOLUMETRIA
-    # ============================================================
-    with tab_op:
-        st.caption(f"⚡ Exibindo dados do período: **{mes_sel} / {ano_sel}**")
+    ocultar_roadmap = st.checkbox("🚫 Ocultar Projetos/Roadmap (> 5 dias) dos cálculos de SLA", value=True)
+    
+    df_sla = df_base[df_base["sla_valido"]].copy()
+    if ocultar_roadmap:
+        df_sla = df_sla[~df_sla["eh_roadmap"]]
 
-        # METRICAS E CARDS
-        total_chamados = len(df_op_base)
-        df_dash = df_op_base.copy()
-        df_dash["grupo_status"] = df_dash["status"].apply(classificar_status_grupo)
-        concluidos = len(df_dash[df_dash["grupo_status"] == "Concluídos"])
-        em_andamento = len(df_dash[df_dash["grupo_status"] == "Em Andamento"])
-        pendentes = len(df_dash[df_dash["grupo_status"] == "Abertos"])
-        taxa_conclusao = (concluidos / total_chamados * 100) if total_chamados > 0 else 0
+    st.caption(f"⚡ Período Selecionado: **{mes_sel} / {ano_sel}**")
+    st.divider()
 
-        m1, m2, m3, m4, m5 = st.columns(5)
-        with m1:
-            st.metric("Total Chamados", total_chamados)
-            if st.button("👁️ Ver Todos", key="btn_kpi_total", use_container_width=True):
-                limpar_filtro_dash()
-                st.rerun()
-        with m2:
-            st.metric("🟢 Concluídos", concluidos)
-            if st.button("🔍 Concluídos", key="btn_kpi_concluidos", use_container_width=True, type=("primary" if st.session_state.filtro_dash_valor == "Concluídos" else "secondary")):
-                st.session_state.filtro_dash_tipo = "status_grupo"
-                st.session_state.filtro_dash_valor = "Concluídos"
-                st.rerun()
-        with m3:
-            st.metric("🔵 Em Andamento", em_andamento)
-            if st.button("🔍 Andamento", key="btn_kpi_andamento", use_container_width=True, type=("primary" if st.session_state.filtro_dash_valor == "Em Andamento" else "secondary")):
-                st.session_state.filtro_dash_tipo = "status_grupo"
-                st.session_state.filtro_dash_valor = "Em Andamento"
-                st.rerun()
-        with m4:
-            st.metric("🟡 Abertos", pendentes)
-            if st.button("🔍 Abertos", key="btn_kpi_abertos", use_container_width=True, type=("primary" if st.session_state.filtro_dash_valor == "Abertos" else "secondary")):
-                st.session_state.filtro_dash_tipo = "status_grupo"
-                st.session_state.filtro_dash_valor = "Abertos"
-                st.rerun()
-        with m5:
-            st.metric("📈 Taxa Resolução", f"{taxa_conclusao:.1f}%")
-
-        st.divider()
-
-        # GRÁFICOS INTERATIVOS
-        g1, g2 = st.columns(2)
-        with g1:
-            st.subheader("🍩 Distribuição por Status")
-            s_counts = df_op_base["status"].replace("", "Aberto / Sem Status").value_counts().reset_index()
-            s_counts.columns = ["Status", "Quantidade"]
-            fig_status = px.pie(s_counts, names="Status", values="Quantidade", hole=0.45, custom_data=["Status"])
-            evt_status = st.plotly_chart(aplicar_layout_plotly(fig_status), use_container_width=True, on_select="rerun", selection_mode="points", key="chart_status")
-            processar_clique_grafico(evt_status, "status")
-
-        with g2:
-            st.subheader("⚠️ Chamados por Prioridade")
-            df_prio = df_op_base["prioridade"].replace("", "Não Informado").value_counts().reset_index()
-            df_prio.columns = ["Prioridade", "Quantidade"]
-            fig_prio = px.bar(df_prio, x="Prioridade", y="Quantidade", text="Quantidade", color="Prioridade", custom_data=["Prioridade"])
-            fig_prio.update_layout(showlegend=False)
-            evt_prio = st.plotly_chart(aplicar_layout_plotly(fig_prio), use_container_width=True, on_select="rerun", selection_mode="points", key="chart_prio")
-            processar_clique_grafico(evt_prio, "prioridade")
-
-        st.divider()
-        g3, g4 = st.columns(2)
-        with g3:
-            st.subheader("🏢 Demandas por Departamento")
-            df_dep = df_op_base["departamento"].replace("", "Outros").value_counts().head(10).reset_index()
-            df_dep.columns = ["Departamento", "Quantidade"]
-            fig_dep = px.bar(df_dep, y="Departamento", x="Quantidade", orientation="h", text="Quantidade", custom_data=["Departamento"])
-            fig_dep.update_layout(yaxis=dict(autorange="reversed"))
-            evt_dep = st.plotly_chart(aplicar_layout_plotly(fig_dep), use_container_width=True, on_select="rerun", selection_mode="points", key="chart_dep")
-            processar_clique_grafico(evt_dep, "departamento")
-
-        with g4:
-            st.subheader("👨‍💻 Atendimentos por Técnico")
-            df_tec = df_op_base["tecnico"].replace("", "Não Atribuído").value_counts().head(10).reset_index()
-            df_tec.columns = ["Técnico", "Quantidade"]
-            fig_tec = px.bar(df_tec, x="Técnico", y="Quantidade", text="Quantidade", custom_data=["Técnico"])
-            evt_tec = st.plotly_chart(aplicar_layout_plotly(fig_tec), use_container_width=True, on_select="rerun", selection_mode="points", key="chart_tec")
-            processar_clique_grafico(evt_tec, "tecnico")
-
-        st.divider()
-
-        # TABELA DE CHAMADOS
-        df_filtrado_dash = df_dash.copy()
-        tipo_filtro = st.session_state.filtro_dash_tipo
-        valor_filtro = st.session_state.filtro_dash_valor
-
-        rotulo_periodo = f"{mes_sel} / {ano_sel}" if ano_sel != "Todos os Anos" else f"{mes_sel} (Todos os Anos)"
-
-        if tipo_filtro and valor_filtro:
-            if tipo_filtro == "status_grupo":
-                df_filtrado_dash = df_filtrado_dash[df_filtrado_dash["grupo_status"] == valor_filtro]
-            elif tipo_filtro in ["status", "prioridade", "departamento", "tecnico"]:
-                df_filtrado_dash = df_filtrado_dash[df_filtrado_dash[tipo_filtro] == valor_filtro]
-
-            st.info(f"🔍 **Filtro ativo:** {tipo_filtro.upper()} = **{valor_filtro}** ({len(df_filtrado_dash)} chamados em {rotulo_periodo})")
-            st.button("❌ Limpar Filtro de Gráfico/Card", on_click=limpar_filtro_dash, type="secondary")
-        else:
-            st.caption(f"Exibindo todos os {len(df_filtrado_dash)} chamados do período selecionado ({rotulo_periodo}).")
-
-        colunas_exibir = [
-            "id_chamado", "status", "solicitante", "titulo", 
-            "departamento", "tecnico", "prioridade", "data_hora_abertura"
-        ]
-        colunas_existentes = [c for c in colunas_exibir if c in df_filtrado_dash.columns]
-        
-        st.dataframe(
-            df_filtrado_dash[colunas_existentes].sort_values(by="id_chamado", ascending=False),
-            use_container_width=True,
-            hide_index=True
+    # 1. VISÃO GERAL DE VOLUME (COM GRÁFICO MANTIDO)
+    st.subheader("📈 Volume Geral de Chamados")
+    
+    df_vol = df_base.groupby(["tecnico", "status"]).size().reset_index(name="Quantidade")
+    if not df_vol.empty:
+        fig_vol = px.bar(
+            df_vol, 
+            x="tecnico", 
+            y="Quantidade", 
+            color="status", 
+            barmode="group",
+            title="Total de Chamados por Técnico e Status",
+            labels={"tecnico": "Técnico", "Quantidade": "Qtd Chamados", "status": "Status"},
+            color_discrete_sequence=px.colors.qualitative.Set2
         )
+        fig_vol.update_layout(margin=dict(l=20, r=20, t=40, b=20), height=350)
+        st.plotly_chart(fig_vol, use_container_width=True)
 
-    # ============================================================
-    # TAB: SLAs & MÉDIAS DE TEMPO (CORRIGIDA E ROBUSTA)
-    # ============================================================
-    with tab_sla:
-        st.caption("⏱️ Indicadores de tempo calculados com base nos chamados finalizados do período.")
-        
-        # Filtra chamados válidos (tem data de abertura e conclusão válidas)
-        df_sla = df_op_base[df_op_base["sla_valido"] == True].copy()
-        
-        # Opção para o usuário ignorar ou não chamados longos (Roadmap > 5 dias)
-        ocultar_roadmap = st.checkbox("🚫 Ocultar Projetos/Roadmap (> 5 dias) dos cálculos de média", value=False)
-        
-        if ocultar_roadmap:
-            df_sla_trabalhado = df_sla[df_sla["eh_roadmap"] == False]
-        else:
-            df_sla_trabalhado = df_sla.copy()
+    st.divider()
 
-        if df_sla_trabalhado.empty:
-            st.warning("⚠️ Nenhum chamado concluído foi encontrado para os critérios de tempo no período selecionado.")
-        else:
-            t1, t2, t3, t4 = st.columns(4)
-            with t1:
-                st.metric("Chamados com SLA Válido", len(df_sla_trabalhado))
-            with t2:
-                # Média até o técnico assumir (ignora registros sem dt_tecnico)
-                df_ate_tec = df_sla_trabalhado[df_sla_trabalhado["min_ate_tecnico"].notna() & (df_sla_trabalhado["min_ate_tecnico"] >= 0)]
-                media_atencao = df_ate_tec["min_ate_tecnico"].mean() if not df_ate_tec.empty else None
-                st.metric("⏳ Média - Início do Atendimento", formatar_tempo(media_atencao))
-            with t3:
-                # Média do tempo de resolução técnica
-                df_res = df_sla_trabalhado[df_sla_trabalhado["min_resolucao"].notna() & (df_sla_trabalhado["min_resolucao"] >= 0)]
-                media_resolucao = df_res["min_resolucao"].mean() if not df_res.empty else None
-                st.metric("🔧 Média - Tempo de Execução", formatar_tempo(media_resolucao))
-            with t4:
-                # Média do tempo total
-                media_total = df_sla_trabalhado["min_total"].mean()
-                st.metric("🏁 Média - Tempo Total", formatar_tempo(media_total))
+    # 2. SEÇÃO DE SLA (SEM GRÁFICO - SOMENTE MÉTRICAS E CARDS)
+    st.subheader("⏱️ Indicadores de SLA e Tempos Médios (Sem Gráfico)")
+    
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Chamados SLA Válido", len(df_sla))
+    m2.metric("Média - Início Atendimento", formatar_tempo(df_sla["min_ate_tecnico"].mean()))
+    m3.metric("Média - Tempo Execução", formatar_tempo(df_sla["min_resolucao"].mean()))
+    m4.metric("Média - Tempo Total", formatar_tempo(df_sla["min_total"].mean()))
 
-            st.divider()
+    st.write("")
+    tec_cols = st.columns(len(TECNICOS_PERMITIDOS))
+    
+    for idx, tec_nome in enumerate(TECNICOS_PERMITIDOS):
+        df_tec = df_sla[df_sla["tecnico"].str.casefold() == tec_nome.casefold()]
+        total_tec = len(df_tec)
+        media_inicio = df_tec["min_ate_tecnico"].mean()
+        media_exec = df_tec["min_resolucao"].mean()
+        media_total = df_tec["min_total"].mean()
 
-            col_sla1, col_sla2 = st.columns(2)
-            with col_sla1:
-                st.subheader("👨‍💻 Tempo Médio Total por Técnico")
-                df_tec_sla = df_sla_trabalhado[df_sla_trabalhado["tecnico"] != ""].groupby("tecnico")["min_total"].mean().reset_index()
-                if not df_tec_sla.empty:
-                    df_tec_sla["tempo_formatado"] = df_tec_sla["min_total"].apply(formatar_tempo)
-                    fig_tec_sla = px.bar(
-                        df_tec_sla, x="tecnico", y="min_total",
-                        text="tempo_formatado", color="min_total",
-                        labels={"min_total": "Minutos", "tecnico": "Técnico"}
-                    )
-                    fig_tec_sla.update_layout(showlegend=False)
-                    st.plotly_chart(aplicar_layout_plotly(fig_tec_sla), use_container_width=True)
-                else:
-                    st.info("Sem dados de técnicos para os chamados deste período.")
+        with tec_cols[idx]:
+            with st.container(border=True):
+                st.markdown(f"### 👤 {tec_nome}")
+                st.write(f"**Total Chamados SLA:** {total_tec}")
+                st.write(f"**Início Médio:** {formatar_tempo(media_inicio)}")
+                st.write(f"**Execução Média:** {formatar_tempo(media_exec)}")
+                st.write(f"**Tempo Total Médio:** {formatar_tempo(media_total)}")
 
-            with col_sla2:
-                st.subheader("🏢 Tempo Médio por Departamento")
-                df_dep_sla = df_sla_trabalhado[df_sla_trabalhado["departamento"] != ""].groupby("departamento")["min_total"].mean().reset_index()
-                if not df_dep_sla.empty:
-                    df_dep_sla["tempo_formatado"] = df_dep_sla["min_total"].apply(formatar_tempo)
-                    fig_dep_sla = px.bar(
-                        df_dep_sla, x="min_total", y="departamento",
-                        orientation="h", text="tempo_formatado",
-                        labels={"min_total": "Minutos", "departamento": "Departamento"}
-                    )
-                    fig_dep_sla.update_layout(yaxis=dict(autorange="reversed"))
-                    st.plotly_chart(aplicar_layout_plotly(fig_dep_sla), use_container_width=True)
-                else:
-                    st.info("Sem dados de departamentos para os chamados deste período.")
+    st.divider()
 
-    # ============================================================
-    # TAB: SATISFAÇÃO & NOTAS (CSAT)
-    # ============================================================
-    with tab_csat:
-        st.caption("⭐ Indicadores de satisfação (CSAT) com base nas avaliações enviadas pelos usuários.")
-        
-        df_csat = df_op_base[df_op_base["nota_num"].notna() & (df_op_base["nota_num"] > 0)].copy()
-        
-        if df_csat.empty:
-            st.info("Ainda não há avaliações registradas para o período selecionado.")
-        else:
-            media_geral = df_csat["nota_num"].mean()
-            total_avaliados = len(df_csat)
-            pct_satisfeitos = (len(df_csat[df_csat["nota_num"] >= 4]) / total_avaliados * 100) if total_avaliados > 0 else 0
+    # 3. TABELA DETALHADA DOS CHAMADOS
+    st.subheader("📋 Detalhamento dos Chamados")
+    col_filtro, _ = st.columns([2, 2])
+    with col_filtro:
+        tec_filtro = st.selectbox("Filtrar Tabela por Técnico", ["Todos"] + TECNICOS_PERMITIDOS)
+    
+    df_tabela = df_base.copy()
+    if tec_filtro != "Todos":
+        df_tabela = df_tabela[df_tabela["tecnico"].str.casefold() == tec_filtro.casefold()]
 
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("⭐ Nota Média Geral", f"{media_geral:.2f} / 5.0")
-            with c2:
-                st.metric("📋 Total de Avaliações", total_avaliados)
-            with c3:
-                st.metric("😊 Taxa de Satisfação (Notas 4 e 5)", f"{pct_satisfeitos:.1f}%")
+    df_exibicao = df_tabela[["id_chamado", "tecnico", "solicitante", "titulo", "status", "min_total"]].copy()
+    df_exibicao["Tempo Total"] = df_exibicao["min_total"].apply(formatar_tempo)
+    df_exibicao = df_exibicao.drop(columns=["min_total"]).rename(columns={
+        "id_chamado": "Chamado",
+        "tecnico": "Técnico",
+        "solicitante": "Solicitante",
+        "titulo": "Título",
+        "status": "Status"
+    })
 
-            st.divider()
-
-            col_c1, col_c2 = st.columns(2)
-            with col_c1:
-                st.subheader("📊 Distribuição das Notas")
-                dist_notas = df_csat["nota_num"].value_counts().sort_index(ascending=False).reset_index()
-                dist_notas.columns = ["Nota", "Quantidade"]
-                dist_notas["Nota_Str"] = dist_notas["Nota"].apply(lambda x: "⭐" * int(x))
-                
-                fig_dist = px.bar(
-                    dist_notas, x="Quantidade", y="Nota_Str",
-                    orientation="h", text="Quantidade",
-                    color="Nota", color_continuous_scale="Blues"
-                )
-                fig_dist.update_layout(showlegend=False, yaxis_title="Avaliação")
-                st.plotly_chart(aplicar_layout_plotly(fig_dist), use_container_width=True)
-
-            with col_c2:
-                st.subheader("👨‍💻 Nota Média por Técnico")
-                df_tec_csat = df_csat[df_csat["tecnico"] != ""].groupby("tecnico")["nota_num"].agg(["mean", "count"]).reset_index()
-                if not df_tec_csat.empty:
-                    df_tec_csat.columns = ["Técnico", "Nota Média", "Avaliações"]
-                    df_tec_csat["Nota Média"] = df_tec_csat["Nota Média"].round(2)
-                    
-                    fig_tec_csat = px.bar(
-                        df_tec_csat, x="Técnico", y="Nota Média",
-                        text="Nota Média", color="Nota Média",
-                        range_y=[0, 5], color_continuous_scale="Blues"
-                    )
-                    st.plotly_chart(aplicar_layout_plotly(fig_tec_csat), use_container_width=True)
-                else:
-                    st.info("Sem dados de técnicos avaliados.")
-
-    # ============================================================
-    # TAB: FEED DE REVIEWS & FEEDBACK
-    # ============================================================
-    with tab_reviews:
-        st.caption("💬 Listagem dos comentários recentes deixados pelos solicitantes.")
-        
-        df_feed = df_op_base[
-            df_op_base["comentario_avaliacao"].notna() & 
-            (df_op_base["comentario_avaliacao"].str.strip() != "") &
-            (df_op_base["comentario_avaliacao"].str.casefold() != "nan")
-        ].copy()
-
-        if df_feed.empty:
-            st.info("Nenhum comentário por escrito foi registrado no período selecionado.")
-        else:
-            df_feed = df_feed.sort_values(by="dt_aval_parsed", ascending=False)
-            
-            for _, row in df_feed.iterrows():
-                with st.container(border=True):
-                    f_col1, f_col2 = st.columns([8, 2])
-                    with f_col1:
-                        estrelas_txt = render_estrelas(row.get("nota_num", 5)) or "⭐⭐⭐⭐⭐"
-                        st.markdown(f"**🎫 Chamado #{row['id_chamado']} - {row.get('titulo', 'Sem título')}**")
-                        st.markdown(f"*{estrelas_txt}* — **{row.get('solicitante', 'Anônimo')}** ({row.get('departamento', '-')})")
-                        st.write(f'💬 *"{row["comentario_avaliacao"]}"*')
-                    with f_col2:
-                        st.caption("👨‍💻 **Técnico:**")
-                        st.write(row.get("tecnico", "-"))
-                        dt_str = row["dt_aval_parsed"].strftime("%d/%m/%Y") if pd.notna(row["dt_aval_parsed"]) else "-"
-                        st.caption(f"📅 {dt_str}")
+    st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
