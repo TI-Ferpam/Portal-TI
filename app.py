@@ -657,163 +657,192 @@ if st.session_state.tela == "dashboard":
         g1, g2 = st.columns(2)
         with g1:
             st.subheader("🍩 Distribuição por Status")
-            s_counts = df_op_base["status"].replace("", "Aberto / Sem Status").value_counts().reset_index()
-            s_counts.columns = ["Status", "Quantidade"]
-            fig_status = px.pie(s_counts, names="Status", values="Quantidade", hole=0.45, custom_data=["Status"])
-            evt_status = st.plotly_chart(aplicar_layout_plotly(fig_status), use_container_width=True, on_select="rerun", selection_mode="points", key="chart_status")
-            processar_clique_grafico(evt_status, "status")
+            st_counts = df_dash["status"].replace("", "Não informado").value_counts().reset_index()
+            st_counts.columns = ["Status", "Quantidade"]
+            fig_status = px.pie(
+                st_counts, names="Status", values="Quantidade",
+                hole=0.5, color_discrete_sequence=px.colors.qualitative.Set2
+            )
+            fig_status = aplicar_layout_plotly(fig_status)
+            ev_status = st.plotly_chart(fig_status, use_container_width=True, on_select="rerun", selection_mode="points")
+            processar_clique_grafico(ev_status, "status")
 
         with g2:
-            st.subheader("⚠️ Chamados por Prioridade")
-            df_prio = df_op_base["prioridade"].replace("", "Não Informado").value_counts().reset_index()
-            df_prio.columns = ["Prioridade", "Quantidade"]
-            fig_prio = px.bar(df_prio, x="Prioridade", y="Quantidade", text="Quantidade", color="Prioridade", custom_data=["Prioridade"])
-            fig_prio.update_layout(showlegend=False)
-            evt_prio = st.plotly_chart(aplicar_layout_plotly(fig_prio), use_container_width=True, on_select="rerun", selection_mode="points", key="chart_prio")
-            processar_clique_grafico(evt_prio, "prioridade")
-
-        st.divider()
+            st.subheader("📊 Distribuição por Prioridade")
+            prio_counts = df_dash["prioridade"].replace("", "Não informada").value_counts().reset_index()
+            prio_counts.columns = ["Prioridade", "Quantidade"]
+            fig_prio = px.bar(
+                prio_counts, x="Prioridade", y="Quantidade",
+                color="Prioridade", color_discrete_sequence=px.colors.qualitative.Pastel
+            )
+            fig_prio = aplicar_layout_plotly(fig_prio)
+            ev_prio = st.plotly_chart(fig_prio, use_container_width=True, on_select="rerun", selection_mode="points")
+            processar_clique_grafico(ev_prio, "prioridade")
 
         # GRÁFICOS OPERACIONAIS (LINHA 2)
         g3, g4 = st.columns(2)
         with g3:
-            st.subheader("🏢 Demandas por Departamento")
-            df_dep = df_op_base["departamento"].replace("", "Sem Departamento").value_counts().head(10).reset_index()
-            df_dep.columns = ["Departamento", "Quantidade"]
-            fig_dep = px.bar(df_dep, x="Quantidade", y="Departamento", orientation="h", text="Quantidade", custom_data=["Departamento"])
-            fig_dep.update_layout(yaxis=dict(autorange="reversed"))
-            evt_dep = st.plotly_chart(aplicar_layout_plotly(fig_dep), use_container_width=True, on_select="rerun", selection_mode="points", key="chart_dep")
-            processar_clique_grafico(evt_dep, "departamento")
+            st.subheader("🏢 Top Departamentos")
+            dep_counts = df_dash["departamento"].replace("", "Outros").value_counts().head(10).reset_index()
+            dep_counts.columns = ["Departamento", "Quantidade"]
+            fig_dep = px.bar(
+                dep_counts, x="Quantidade", y="Departamento",
+                orientation="h", color_discrete_sequence=["#38bdf8"]
+            )
+            fig_dep = aplicar_layout_plotly(fig_dep)
+            ev_dep = st.plotly_chart(fig_dep, use_container_width=True, on_select="rerun", selection_mode="points")
+            processar_clique_grafico(ev_dep, "departamento")
 
         with g4:
-            st.subheader("👨‍💻 Atendimentos por Técnico")
-            df_tec = df_op_base["tecnico"].replace("", "Não Atribuído").value_counts().head(10).reset_index()
-            df_tec.columns = ["Técnico", "Quantidade"]
-            fig_tec = px.bar(df_tec, x="Quantidade", y="Técnico", orientation="h", text="Quantidade", custom_data=["Técnico"])
-            fig_tec.update_layout(yaxis=dict(autorange="reversed"))
-            evt_tec = st.plotly_chart(aplicar_layout_plotly(fig_tec), use_container_width=True, on_select="rerun", selection_mode="points", key="chart_tec")
-            processar_clique_grafico(evt_tec, "tecnico")
+            st.subheader("👨‍💻 Chamados por Técnico")
+            tec_counts = df_dash["tecnico"].replace("", "Não Atribuído").value_counts().head(10).reset_index()
+            tec_counts.columns = ["Técnico", "Quantidade"]
+            fig_tec = px.bar(
+                tec_counts, x="Quantidade", y="Técnico",
+                orientation="h", color_discrete_sequence=[AZUL_FERPAM]
+            )
+            fig_tec = aplicar_layout_plotly(fig_tec)
+            ev_tec = st.plotly_chart(fig_tec, use_container_width=True, on_select="rerun", selection_mode="points")
+            processar_clique_grafico(ev_tec, "tecnico")
 
         st.divider()
 
-        # TABELA COMPLETA COM OS RESULTADOS FILTRADOS
-        st.subheader("📋 Relação Detalhada de Chamados")
-        if df_filtrado_exibir.empty:
-            st.warning("Nenhum chamado encontrado para a combinação selecionada.")
+        # TABELA RESUMO DE CHAMADOS
+        st.subheader("📋 Detalhamento dos Chamados (Consulta Rápida)")
+        if not df_filtrado_exibir.empty:
+            df_table = df_filtrado_exibir[[
+                "id_chamado", "status", "solicitante", "titulo", "tecnico", "departamento"
+            ]].copy()
+            df_table.columns = ["Ticket", "Status", "Solicitante", "Título", "Técnico", "Departamento"]
+            st.dataframe(df_table, use_container_width=True, hide_index=True)
         else:
-            col_tbl1, col_tbl2 = st.columns([3, 1])
-            with col_tbl1:
-                busca_tabela = st.text_input("🔍 Filtrar na lista abaixo por id, titulo, solicitante...", key="busca_tbl")
-            
-            df_exib = df_filtrado_exibir.copy()
-            if busca_tabela.strip():
-                bt = busca_tabela.strip().casefold()
-                df_exib = df_exib[
-                    df_exib["id_chamado"].str.casefold().str.contains(bt, na=False) |
-                    df_exib["solicitante"].str.casefold().str.contains(bt, na=False) |
-                    df_exib["titulo"].str.casefold().str.contains(bt, na=False) |
-                    df_exib["tecnico"].str.casefold().str.contains(bt, na=False)
-                ]
-
-            st.caption(f"Exibindo **{len(df_exib)}** chamados")
-
-            for idx, cham in df_exib.reset_index(drop=True).iterrows():
-                t_id = str(cham["id_chamado"]).strip()
-                pct, status_txt = calcular_progresso(cham)
-                badge_html = get_status_badge(cham.get("status", ""))
-                bar_html = render_barra_progresso(pct, status_txt)
-                
-                with st.container(border=True):
-                    c_l, c_r = st.columns([7, 3])
-                    with c_l:
-                        st.markdown(f"""
-                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
-                            <span style="font-size: 1.1rem; font-weight: 800;">🎫 #{t_id}</span>
-                            {badge_html}
-                        </div>
-                        <div style="font-size: 0.95rem; font-weight: 700;">{cham.get('titulo', 'Sem título')}</div>
-                        <div style="font-size: 0.83rem; color: #94a3b8;">👤 Solicitante: <b>{cham.get('solicitante', '-')}</b> | 👨‍💻 Técnico: <b>{cham.get('tecnico', 'Não Atribuído')}</b> | 🏢 Dep: <b>{cham.get('departamento', '-')}</b></div>
-                        """, unsafe_allow_html=True)
-                        st.markdown(bar_html, unsafe_allow_html=True)
-                    with c_r:
-                        st.write("")
-                        st.write("")
-                        st.button("👁️ Detalhar Ticket", key=f"btn_dash_det_{t_id}_{idx}", on_click=abrir_ticket, args=(t_id,), use_container_width=True)
+            st.info("Nenhum chamado para exibir na tabela com os critérios selecionados.")
 
     # ============================================================
-    # TAB 2: SLAs & TEMPOS MÉDIOS
+    # TAB 2: SLAs & TEMPOS MÉDIOS (APENAS CARDS - SEM GRÁFICOS)
     # ============================================================
     with tab_sla:
-        st.subheader("⏱️ SLA & Métricas de Tempo")
-        df_sla = df[df["sla_valido"] == True].copy()
+        st.subheader("⏱️ SLA & Métricas de Tempo (Chamados Operacionais)")
+        st.caption("Esta aba exibe as métricas limpas, ignorando chamados de longa duração catalogados como **Roadmap**.")
         
-        if df_sla.empty:
-            st.warning("Não há chamados suficientes com as 3 datas completas para gerar estatísticas de SLA.")
+        # 1. Filtra chamados válidos de SLA
+        df_sla_base = df[df["sla_valido"] == True].copy()
+        
+        # 2. SEPARAÇÃO RIGOROSA: Chamados Operacionais vs Chamados de Roadmap (> 6 dias)
+        df_sla_operacional = df_sla_base[df_sla_base["eh_roadmap"] == False]
+        df_roadmap = df_sla_base[df_sla_base["eh_roadmap"] == True]
+        
+        if df_sla_operacional.empty:
+            st.warning("Não há chamados operacionais com as 3 datas completas para gerar estatísticas de SLA.")
         else:
+            # APENAS CARDS / MÉTRICAS (SEM GRÁFICOS)
             s1, s2, s3 = st.columns(3)
             with s1:
-                st.metric("⏱️ Méd. Tempo de Resposta (Até Técnico)", formatar_tempo(df_sla["min_ate_tecnico"].mean()))
+                st.metric("⏱️ Méd. Tempo até Atendimento", formatar_tempo(df_sla_operacional["min_ate_tecnico"].mean()))
             with s2:
-                st.metric("🔧 Méd. Tempo de Execução", formatar_tempo(df_sla["min_resolucao"].mean()))
+                st.metric("🔧 Méd. Tempo de Execução", formatar_tempo(df_sla_operacional["min_resolucao"].mean()))
             with s3:
-                st.metric("🏁 Méd. Tempo Total de Conclusão", formatar_tempo(df_sla["min_total"].mean()))
-            
-            st.divider()
-            st.subheader("📊 Média de Tempo de Atendimento por Técnico")
-            df_tec_sla = df_sla.groupby("tecnico")["min_total"].mean().reset_index()
-            df_tec_sla["tempo_txt"] = df_tec_sla["min_total"].apply(formatar_tempo)
-            df_tec_sla = df_tec_sla.sort_values(by="min_total", ascending=True)
-            
-            fig_sla_tec = px.bar(df_tec_sla, x="min_total", y="tecnico", orientation="h", text="tempo_txt", title="Tempo Médio Total de Resolução por Técnico")
-            fig_sla_tec.update_layout(xaxis_title="Minutos Totais", yaxis_title="Técnico", yaxis=dict(autorange="reversed"))
-            st.plotly_chart(aplicar_layout_plotly(fig_sla_tec), use_container_width=True)
+                st.metric("🏁 Méd. Tempo Total de Conclusão", formatar_tempo(df_sla_operacional["min_total"].mean()))
+
+        st.divider()
+
+        # BLOCO INFORMATIVO DE ROADMAP (SEM GRÁFICOS)
+        st.subheader("🚀 Projetos & Chamados de Roadmap (> 6 dias)")
+        if df_roadmap.empty:
+            st.info("Nenhum chamado categorizado como Roadmap no período.")
+        else:
+            st.caption(f"Total de chamados de Roadmap identificados: **{len(df_roadmap)}**")
+            rm1, rm2, rm3 = st.columns(3)
+            with rm1:
+                st.metric("⏱️ Méd. Resposta Roadmap", formatar_tempo(df_roadmap["min_ate_tecnico"].mean()))
+            with rm2:
+                st.metric("🔧 Méd. Execução Roadmap", formatar_tempo(df_roadmap["min_resolucao"].mean()))
+            with rm3:
+                st.metric("🏁 Méd. Total Conclusão Roadmap", formatar_tempo(df_roadmap["min_total"].mean()))
 
     # ============================================================
-    # TAB 3: SATISFAÇÃO & CSAT
+    # TAB 3: SATISFAÇÃO & NOTAS (CSAT)
     # ============================================================
     with tab_csat:
-        st.subheader("⭐ Pesquisa de Satisfação (CSAT)")
-        df_csat = df[df["nota_num"].notna() & (df["nota_num"] > 0)].copy()
+        st.subheader("⭐ Indicadores de Satisfação do Usuário (CSAT)")
+        
+        df_avaliados = df[df["nota_num"].notna() & (df["nota_num"] > 0)].copy()
 
-        if df_csat.empty:
-            st.warning("Ainda não foram encontradas notas registradas na planilha.")
+        if df_avaliados.empty:
+            st.warning("Nenhum atendimento avaliado foi encontrado até o momento.")
         else:
-            media_csat = df_csat["nota_num"].mean()
-            total_avaliacoes = len(df_csat)
-            
-            c_csat1, c_csat2 = st.columns(2)
-            with c_csat1:
-                st.metric("⭐ Média Geral CSAT", f"{media_csat:.2f} / 5.0")
-            with c_csat2:
-                st.metric("📝 Total de Chamados Avaliados", total_avaliacoes)
+            c_m1, c_m2, c_m3 = st.columns(3)
+            media_csat = df_avaliados["nota_num"].mean()
+            total_aval = len(df_avaliados)
+            otimos = len(df_avaliados[df_avaliados["nota_num"] >= 4])
+            pct_otimo = (otimos / total_aval * 100) if total_aval > 0 else 0
+
+            with c_m1:
+                st.metric("⭐ Média CSAT Geral", f"{media_csat:.2f} / 5.00")
+            with c_m2:
+                st.metric("💬 Total de Avaliações", total_aval)
+            with c_m3:
+                st.metric("💚 Atendimentos Ótimos (4-5★)", f"{pct_otimo:.1f}%")
 
             st.divider()
-            st.subheader("📊 Distribuição das Notas Recebidas")
-            df_notas_count = df_csat["nota_num"].value_counts().reset_index()
-            df_notas_count.columns = ["Nota", "Quantidade"]
-            df_notas_count["Nota"] = df_notas_count["Nota"].astype(int).astype(str) + " Estrela(s)"
-            
-            fig_csat = px.bar(df_notas_count, x="Nota", y="Quantidade", text="Quantidade", color="Nota")
-            fig_csat.update_layout(showlegend=False)
-            st.plotly_chart(aplicar_layout_plotly(fig_csat), use_container_width=True)
+
+            csat_g1, csat_g2 = st.columns(2)
+            with csat_g1:
+                st.subheader("📊 Distribuição das Notas (Estrelas)")
+                nota_dist = df_avaliados["nota_num"].value_counts().reset_index()
+                nota_dist.columns = ["Nota", "Quantidade"]
+                nota_dist = nota_dist.sort_values(by="Nota", ascending=False)
+                fig_notas = px.bar(
+                    nota_dist, x="Nota", y="Quantidade",
+                    color="Nota", color_continuous_scale=px.colors.sequential.Teal
+                )
+                fig_notas = aplicar_layout_plotly(fig_notas)
+                st.plotly_chart(fig_notas, use_container_width=True)
+
+            with csat_g2:
+                st.subheader("👨‍💻 Média de CSAT por Técnico")
+                tec_csat = df_avaliados.groupby("tecnico")["nota_num"].mean().reset_index()
+                tec_csat.columns = ["Técnico", "Média CSAT"]
+                tec_csat = tec_csat.sort_values(by="Média CSAT", ascending=True)
+                fig_tec_csat = px.bar(
+                    tec_csat, x="Média CSAT", y="Técnico",
+                    orientation="h", color="Média CSAT", color_continuous_scale="Blues"
+                )
+                fig_tec_csat = aplicar_layout_plotly(fig_tec_csat)
+                st.plotly_chart(fig_tec_csat, use_container_width=True)
 
     # ============================================================
-    # TAB 4: REVIEWS & FEEDBACK
+    # TAB 4: FEED DE REVIEWS & FEEDBACK
     # ============================================================
     with tab_reviews:
-        st.subheader("💬 Feedbacks e Comentários dos Solicitantes")
-        df_rev = df[df["comentario_avaliacao"].str.strip().ne("") & df["comentario_avaliacao"].str.casefold().ne("nan")].copy()
+        st.subheader("💬 Histórico Recente de Feedbacks dos Usuários")
+        
+        df_feed = df[
+            (df["nota_num"].notna() & (df["nota_num"] > 0)) |
+            (df["comentario_avaliacao"].str.strip() != "")
+        ].copy()
 
-        if df_rev.empty:
-            st.info("Nenhum comentário por escrito registrado até o momento.")
+        df_feed = df_feed.sort_values(by="dt_aval_parsed", ascending=False)
+
+        if df_feed.empty:
+            st.info("Nenhuma avaliação com comentário foi enviada recentemente.")
         else:
-            for _, rev in df_rev.iterrows():
+            for idx, item in df_feed.iterrows():
+                t_id = str(item["id_chamado"]).strip()
+                n_str = render_estrelas(item.get("nota_num"))
+                texto_aval = str(item.get("comentario_avaliacao", "")).strip()
+                data_aval_str = item.get("data_avaliacao", "Data N/D")
+
                 with st.container(border=True):
-                    rc1, rc2 = st.columns([3, 1])
-                    with rc1:
-                        st.markdown(f"**🎫 Ticket #{rev['id_chamado']}** - *{rev['solicitante']}* ({rev['departamento']})")
-                        st.write(f'"{rev["comentario_avaliacao"]}"')
-                    with rc2:
-                        st.caption(f"🗓️ Data: {rev.get('data_avaliacao', '-')}")
-                        if pd.notna(rev.get("nota_num")):
-                            st.markdown(f"**Nota:** {render_estrelas(rev['nota_num'])}")
+                    col1, col2 = st.columns([8, 2])
+                    with col1:
+                        st.markdown(f"**🎫 #{t_id} | {item.get('titulo', 'Sem Título')}**")
+                        if n_str:
+                            st.markdown(f"**Avaliação:** {n_str}")
+                        if texto_aval and texto_aval.casefold() != "nan":
+                            st.markdown(f"> *\"{texto_aval}\"*")
+                        st.caption(f"👤 Solicitante: **{item.get('solicitante', '-')}** | 👨‍💻 Técnico: **{item.get('tecnico', 'Não informado')}**")
+                    with col2:
+                        st.write("")
+                        st.caption(f"📅 {data_aval_str}")
+                        st.button("👁️ Ver Ticket", key=f"btn_feed_{t_id}_{idx}", on_click=abrir_ticket, args=(t_id,), use_container_width=True)
