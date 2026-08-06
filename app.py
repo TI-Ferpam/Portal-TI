@@ -719,7 +719,7 @@ if st.session_state.tela == "dashboard":
             st.info("Nenhum chamado para exibir na tabela com os critérios selecionados.")
 
     # ============================================================
-    # TAB 2: SLAs & TEMPOS MÉDIOS (APENAS CARDS - SEM GRÁFICOS)
+    # TAB 2: SLAs & TEMPOS MÉDIOS
     # ============================================================
     with tab_sla:
         st.subheader("⏱️ SLA & Métricas de Tempo (Chamados Operacionais)")
@@ -735,7 +735,7 @@ if st.session_state.tela == "dashboard":
         if df_sla_operacional.empty:
             st.warning("Não há chamados operacionais com as 3 datas completas para gerar estatísticas de SLA.")
         else:
-            # APENAS CARDS / MÉTRICAS (SEM GRÁFICOS)
+            # CARDS GERAIS
             s1, s2, s3 = st.columns(3)
             with s1:
                 st.metric("⏱️ Méd. Tempo até Atendimento", formatar_tempo(df_sla_operacional["min_ate_tecnico"].mean()))
@@ -744,9 +744,61 @@ if st.session_state.tela == "dashboard":
             with s3:
                 st.metric("🏁 Méd. Tempo Total de Conclusão", formatar_tempo(df_sla_operacional["min_total"].mean()))
 
+            st.divider()
+
+            # ==========================================
+            # NOVO: SLA POR TÉCNICO (JAIR & MATHEUS JULIATI)
+            # ==========================================
+            st.subheader("👨‍💻 Desempenho e SLA Operacional por Técnico")
+            st.caption("Comparativo de tempos médios apenas para chamados operacionais (exclui Roadmap e técnicos filtrados).")
+            
+            df_tec_sla = (
+                df_sla_operacional.groupby("tecnico")
+                .agg(
+                    Chamados=("id_chamado", "count"),
+                    min_resp=("min_ate_tecnico", "mean"),
+                    min_exec=("min_resolucao", "mean"),
+                    min_total=("min_total", "mean")
+                )
+                .reset_index()
+            )
+            
+            # Filtra nomes vazios
+            df_tec_sla = df_tec_sla[df_tec_sla["tecnico"].str.strip() != ""].sort_values(by="Chamados", ascending=False)
+            
+            if not df_tec_sla.empty:
+                col_t1, col_t2 = st.columns([1.2, 1])
+                
+                with col_t1:
+                    df_exibir_tec = df_tec_sla.copy()
+                    df_exibir_tec["Tempo até Atendimento"] = df_exibir_tec["min_resp"].apply(formatar_tempo)
+                    df_exibir_tec["Tempo de Execução"] = df_exibir_tec["min_exec"].apply(formatar_tempo)
+                    df_exibir_tec["Tempo Total"] = df_exibir_tec["min_total"].apply(formatar_tempo)
+                    df_exibir_tec = df_exibir_tec.rename(columns={"tecnico": "Técnico"})
+                    
+                    st.dataframe(
+                        df_exibir_tec[["Técnico", "Chamados", "Tempo até Atendimento", "Tempo de Execução", "Tempo Total"]],
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    
+                with col_t2:
+                    fig_sla_tec = px.bar(
+                        df_tec_sla,
+                        x="tecnico",
+                        y="min_total",
+                        title="Tempo Médio Total de Conclusão",
+                        labels={"min_total": "Minutos", "tecnico": "Técnico"},
+                        color="tecnico",
+                        color_discrete_sequence=[AZUL_FERPAM, "#38bdf8", "#10b981"]
+                    )
+                    fig_sla_tec = aplicar_layout_plotly(fig_sla_tec)
+                    fig_sla_tec.update_layout(showlegend=False)
+                    st.plotly_chart(fig_sla_tec, use_container_width=True)
+
         st.divider()
 
-        # BLOCO INFORMATIVO DE ROADMAP (SEM GRÁFICOS)
+        # BLOCO INFORMATIVO DE ROADMAP
         st.subheader("🚀 Projetos & Chamados de Roadmap (> 6 dias)")
         if df_roadmap.empty:
             st.info("Nenhum chamado categorizado como Roadmap no período.")
