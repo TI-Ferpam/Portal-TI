@@ -798,20 +798,7 @@ if st.session_state.tela == "dashboard":
 
         st.divider()
 
-        # BLOCO INFORMATIVO DE ROADMAP
-        st.subheader("🚀 Projetos & Chamados de Roadmap (> 6 dias)")
-        if df_roadmap.empty:
-            st.info("Nenhum chamado categorizado como Roadmap no período.")
-        else:
-            st.caption(f"Total de chamados de Roadmap identificados: **{len(df_roadmap)}**")
-            rm1, rm2, rm3 = st.columns(3)
-            with rm1:
-                st.metric("⏱️ Méd. Resposta Roadmap", formatar_tempo(df_roadmap["min_ate_tecnico"].mean()))
-            with rm2:
-                st.metric("🔧 Méd. Execução Roadmap", formatar_tempo(df_roadmap["min_resolucao"].mean()))
-            with rm3:
-                st.metric("🏁 Méd. Total Conclusão Roadmap", formatar_tempo(df_roadmap["min_total"].mean()))
-
+   
     # ============================================================
     # TAB 3: SATISFAÇÃO & NOTAS (CSAT)
     # ============================================================
