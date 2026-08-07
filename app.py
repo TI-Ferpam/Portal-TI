@@ -176,7 +176,14 @@ def classificar_status_grupo(status_str):
 # ESTADOS DA SESSÃO E AUXILIARES
 # ============================================================
 
-for key, val in [("tela", "busca"), ("ticket_aberto", None), ("autenticado_admin", False), ("filtro_dash_tipo", None), ("filtro_dash_valor", None)]:
+for key, val in [
+    ("tela", "busca"), 
+    ("ticket_aberto", None), 
+    ("autenticado_admin", False), 
+    ("filtro_dash_tipo", None), 
+    ("filtro_dash_valor", None),
+    ("tecnico_sla_selecionado", None)
+]:
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -565,7 +572,6 @@ if st.session_state.tela == "dashboard":
 
         st.divider()
 
-        # CÁLCULO DOS CARDS DA OPERAÇÃO
         df_dash = df_op_base.copy()
         df_dash["grupo_status"] = df_dash["status"].apply(classificar_status_grupo)
 
@@ -575,7 +581,6 @@ if st.session_state.tela == "dashboard":
         pendentes = len(df_dash[df_dash["grupo_status"] == "Abertos"])
         taxa_conclusao = (concluidos / total_chamados * 100) if total_chamados > 0 else 0
 
-        # FILTRAGEM INTERATIVA (AO CLICAR NOS BOTÕES/GRÁFICOS)
         df_filtrado_exibir = df_dash.copy()
         tipo_f = st.session_state.filtro_dash_tipo
         val_f = st.session_state.filtro_dash_valor
@@ -592,7 +597,6 @@ if st.session_state.tela == "dashboard":
             elif tipo_f == "tecnico":
                 df_filtrado_exibir = df_filtrado_exibir[df_filtrado_exibir["tecnico"].str.casefold() == str(val_f).casefold()]
 
-        # CARDS / METRICAS
         m1, m2, m3, m4, m5 = st.columns(5)
 
         with m1:
@@ -625,7 +629,6 @@ if st.session_state.tela == "dashboard":
         with m5:
             st.metric("📈 Taxa Resolução", f"{taxa_conclusao:.1f}%")
 
-        # DETALHAMENTO DE SUB-STATUS "EM ANDAMENTO"
         df_andamento_only = df_dash[df_dash["grupo_status"] == "Em Andamento"]
         detalhe_status_andamento = df_andamento_only["status"].replace("", "Em Atendimento").value_counts()
 
@@ -646,14 +649,12 @@ if st.session_state.tela == "dashboard":
 
         st.divider()
 
-        # AVISO DE FILTRO ATIVO
         if tipo_f and val_f:
             st.info(f"🔎 **Filtro ativo no Dashboard:** {tipo_f.upper()} = **{val_f}** ({len(df_filtrado_exibir)} chamados)")
             if st.button("❌ Limpar Filtro Selecionado", type="secondary"):
                 limpar_filtro_dash()
                 st.rerun()
 
-        # GRÁFICOS OPERACIONAIS (LINHA 1)
         g1, g2 = st.columns(2)
         with g1:
             st.subheader("🍩 Distribuição por Status")
@@ -679,7 +680,6 @@ if st.session_state.tela == "dashboard":
             ev_prio = st.plotly_chart(fig_prio, use_container_width=True, on_select="rerun", selection_mode="points")
             processar_clique_grafico(ev_prio, "prioridade")
 
-        # GRÁFICOS OPERACIONAIS (LINHA 2)
         g3, g4 = st.columns(2)
         with g3:
             st.subheader("🏢 Top Departamentos")
@@ -707,7 +707,6 @@ if st.session_state.tela == "dashboard":
 
         st.divider()
 
-        # TABELA RESUMO DE CHAMADOS
         st.subheader("📋 Detalhamento dos Chamados (Consulta Rápida)")
         if not df_filtrado_exibir.empty:
             df_table = df_filtrado_exibir[[
@@ -725,17 +724,14 @@ if st.session_state.tela == "dashboard":
         st.subheader("⏱️ SLA & Métricas de Tempo (Chamados Operacionais)")
         st.caption("Esta aba exibe as métricas limpas, ignorando chamados de longa duração catalogados como **Roadmap**.")
         
-        # 1. Filtra chamados válidos de SLA
         df_sla_base = df[df["sla_valido"] == True].copy()
         
-        # 2. SEPARAÇÃO RIGOROSA: Chamados Operacionais vs Chamados de Roadmap (> 6 dias)
         df_sla_operacional = df_sla_base[df_sla_base["eh_roadmap"] == False]
         df_roadmap = df_sla_base[df_sla_base["eh_roadmap"] == True]
         
         if df_sla_operacional.empty:
             st.warning("Não há chamados operacionais com as 3 datas completas para gerar estatísticas de SLA.")
         else:
-            # CARDS GERAIS
             s1, s2, s3 = st.columns(3)
             with s1:
                 st.metric("⏱️ Méd. Tempo até Atendimento", formatar_tempo(df_sla_operacional["min_ate_tecnico"].mean()))
@@ -746,11 +742,8 @@ if st.session_state.tela == "dashboard":
 
             st.divider()
 
-            # ==========================================
-            # NOVO: SLA POR TÉCNICO (JAIR & MATHEUS JULIATI)
-            # ==========================================
             st.subheader("👨‍💻 Desempenho e SLA Operacional por Técnico")
-            st.caption("Comparativo de tempos médios apenas para chamados operacionais (exclui Roadmap e técnicos filtrados).")
+            st.caption("Clique no número de chamados de um técnico para visualizar a lista completa dos seus tickets operacionais.")
             
             df_tec_sla = (
                 df_sla_operacional.groupby("tecnico")
@@ -763,24 +756,45 @@ if st.session_state.tela == "dashboard":
                 .reset_index()
             )
             
-            # Filtra nomes vazios
             df_tec_sla = df_tec_sla[df_tec_sla["tecnico"].str.strip() != ""].sort_values(by="Chamados", ascending=False)
             
             if not df_tec_sla.empty:
-                col_t1, col_t2 = st.columns([1.2, 1])
+                col_t1, col_t2 = st.columns([1.3, 1])
                 
                 with col_t1:
-                    df_exibir_tec = df_tec_sla.copy()
-                    df_exibir_tec["Tempo até Atendimento"] = df_exibir_tec["min_resp"].apply(formatar_tempo)
-                    df_exibir_tec["Tempo de Execução"] = df_exibir_tec["min_exec"].apply(formatar_tempo)
-                    df_exibir_tec["Tempo Total"] = df_exibir_tec["min_total"].apply(formatar_tempo)
-                    df_exibir_tec = df_exibir_tec.rename(columns={"tecnico": "Técnico"})
+                    # CABEÇALHO DA TABELA INTERATIVA
+                    c_head1, c_head2, c_head3, c_head4, c_head5 = st.columns([2.5, 1.5, 2, 2, 2])
+                    c_head1.markdown("**Técnico**")
+                    c_head2.markdown("**Chamados**")
+                    c_head3.markdown("**Atendimento**")
+                    c_head4.markdown("**Execução**")
+                    c_head5.markdown("**Total**")
                     
-                    st.dataframe(
-                        df_exibir_tec[["Técnico", "Chamados", "Tempo até Atendimento", "Tempo de Execução", "Tempo Total"]],
-                        use_container_width=True,
-                        hide_index=True
-                    )
+                    st.divider()
+                    
+                    for idx_tec, r_tec in df_tec_sla.iterrows():
+                        t_nome = r_tec["tecnico"]
+                        t_qtd = int(r_tec["Chamados"])
+                        t_resp = formatar_tempo(r_tec["min_resp"])
+                        t_exec = formatar_tempo(r_tec["min_exec"])
+                        t_tot = formatar_tempo(r_tec["min_total"])
+                        
+                        is_sel = (st.session_state.tecnico_sla_selecionado == t_nome)
+                        btn_tipo = "primary" if is_sel else "secondary"
+                        
+                        c_r1, c_r2, c_r3, c_r4, c_r5 = st.columns([2.5, 1.5, 2, 2, 2])
+                        c_r1.write(f"**{t_nome}**")
+                        
+                        if c_r2.button(f"🔍 {t_qtd}", key=f"btn_tec_sla_{idx_tec}", type=btn_tipo, use_container_width=True):
+                            if is_sel:
+                                st.session_state.tecnico_sla_selecionado = None
+                            else:
+                                st.session_state.tecnico_sla_selecionado = t_nome
+                            st.rerun()
+                            
+                        c_r3.write(t_resp)
+                        c_r4.write(t_exec)
+                        c_r5.write(t_tot)
                     
                 with col_t2:
                     fig_sla_tec = px.bar(
@@ -794,11 +808,56 @@ if st.session_state.tela == "dashboard":
                     )
                     fig_sla_tec = aplicar_layout_plotly(fig_sla_tec)
                     fig_sla_tec.update_layout(showlegend=False)
-                    st.plotly_chart(fig_sla_tec, use_container_width=True)
+                    ev_sla = st.plotly_chart(fig_sla_tec, use_container_width=True, on_select="rerun", selection_mode="points")
+                    
+                    tec_graf = extrair_valor_clicado(ev_sla)
+                    if tec_graf and tec_graf != st.session_state.tecnico_sla_selecionado:
+                        st.session_state.tecnico_sla_selecionado = tec_graf
+                        st.rerun()
+
+            # SEÇÃO EXIBIDA QUANDO UM TÉCNICO É SELECIONADO
+            if st.session_state.tecnico_sla_selecionado:
+                tec_ativo = st.session_state.tecnico_sla_selecionado
+                st.divider()
+                
+                col_titulo_filtro, col_btn_fechar = st.columns([8, 2])
+                with col_titulo_filtro:
+                    st.markdown(f"### 📋 Chamados Operacionais de **{tec_ativo}**")
+                with col_btn_fechar:
+                    if st.button("❌ Limpar Seleção", use_container_width=True):
+                        st.session_state.tecnico_sla_selecionado = None
+                        st.rerun()
+                
+                df_tec_chamados = df_sla_operacional[df_sla_operacional["tecnico"].str.casefold() == tec_ativo.casefold()]
+                
+                if df_tec_chamados.empty:
+                    st.info(f"Nenhum chamado operacional encontrado para {tec_ativo}.")
+                else:
+                    st.caption(f"Exibindo **{len(df_tec_chamados)}** chamado(s) com SLA calculado:")
+                    
+                    for idx_c, item_c in df_tec_chamados.reset_index(drop=True).iterrows():
+                        t_id_c = str(item_c["id_chamado"]).strip()
+                        tit_c = item_c.get("titulo", "Sem título")
+                        solic_c = item_c.get("solicitante", "-")
+                        
+                        t_resp_c = formatar_tempo(item_c.get("min_ate_tecnico"))
+                        t_exec_c = formatar_tempo(item_c.get("min_resolucao"))
+                        t_tot_c = formatar_tempo(item_c.get("min_total"))
+                        
+                        with st.container(border=True):
+                            col_c1, col_c2, col_c3 = st.columns([5, 3, 2])
+                            with col_c1:
+                                st.markdown(f"**🎫 #{t_id_c} - {tit_c}**")
+                                st.caption(f"👤 Solicitante: **{solic_c}** | 🏢 {item_c.get('departamento', '-')}")
+                            with col_c2:
+                                st.markdown(f"⏱️ **Atend.:** {t_resp_c} | 🔧 **Exec.:** {t_exec_c}")
+                                st.markdown(f"🏁 **Total:** `{t_tot_c}`")
+                            with col_c3:
+                                st.write("")
+                                st.button("👁️ Ver detalhes", key=f"btn_sla_dt_{t_id_c}_{idx_c}", on_click=abrir_ticket, args=(t_id_c,), use_container_width=True)
 
         st.divider()
 
-   
     # ============================================================
     # TAB 3: SATISFAÇÃO & NOTAS (CSAT)
     # ============================================================
