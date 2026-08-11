@@ -1,7 +1,19 @@
+import os
+import re
+
 import pandas as pd
 import plotly.express as px
+import requests
 import streamlit as st
 from services.sheets import carregar_chamados
+
+# Se o seu services.sheets já possuir uma função específica para a aba
+# "terceiros", o dashboard também sabe aproveitá-la. Se não possuir,
+# ele tenta obter a aba pelo retorno em dict de carregar_chamados().
+try:
+    from services.sheets import carregar_terceiros
+except ImportError:
+    carregar_terceiros = None
 
 # ============================================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -46,6 +58,12 @@ def formatar_tempo(minutos):
 # ============================================================
 
 @st.cache_data(ttl=30)
+def carregar_origem_planilha():
+    """Evita buscar a mesma planilha duas vezes para chamados e terceiros."""
+    return carregar_chamados()
+
+
+@st.cache_data(ttl=30)
 def carregar_dados():
     colunas_obrigatorias = [
         "id_chamado", "solicitante", "titulo", "ocorrencia", "status",
@@ -55,7 +73,7 @@ def carregar_dados():
     ]
 
     try:
-        data = carregar_chamados()
+        data = carregar_origem_planilha()
         if isinstance(data, dict):
             df_raw = data.get("chamados", list(data.values())[0]).copy()
         elif isinstance(data, pd.DataFrame):
@@ -185,6 +203,77 @@ def carregar_dados():
         return df_err
 
 df = carregar_dados()
+
+
+@st.cache_data(ttl=30)
+def carregar_dados_terceiros():
+    """
+    Carrega a aba/tabela de terceiros sem alterar o formato atual dos chamados.
+    Na planilha da Ferpam, terceiros.id_chamado aponta para chamados.id_appsheet.
+    """
+    colunas = [
+        "id_terceiro", "id_chamado", "data_solicitação", "ultima_atualizacao",
+        "nome_terceiro", "link", "id_ticket", "roadmap", "requisito"
+    ]
+
+    try:
+        origem = carregar_origem_planilha()
+        df_t = pd.DataFrame()
+
+        if isinstance(origem, dict):
+            for chave in ["terceiros", "Terceiros", "TERCEIROS"]:
+                if chave in origem:
+                    valor = origem[chave]
+                    df_t = valor.copy() if isinstance(valor, pd.DataFrame) else pd.DataFrame(valor)
+                    break
+
+        # Fallback para projetos em que services.sheets possui uma função própria.
+        if df_t.empty and carregar_terceiros is not None:
+            valor = carregar_terceiros()
+            if isinstance(valor, dict):
+                valor = valor.get("terceiros", list(valor.values())[0] if valor else [])
+            df_t = valor.copy() if isinstance(valor, pd.DataFrame) else pd.DataFrame(valor)
+
+        if df_t.empty:
+            return pd.DataFrame(columns=colunas)
+
+        df_t.columns = [str(c).strip().lower() for c in df_t.columns]
+        df_t = df_t.loc[:, df_t.columns != ""]
+        df_t = df_t.loc[:, ~df_t.columns.duplicated()]
+
+        # Aceita pequenas variações de nome vindas da fonte.
+        mapa = {
+            "terceiro": "nome_terceiro",
+            "empresa": "nome_terceiro",
+            "url": "link",
+            "link_chamado": "link",
+            "ticket": "id_ticket",
+            "ticket_terceiro": "id_ticket",
+            "id_appsheet": "id_chamado",
+        }
+        novos_nomes = {}
+        for c in df_t.columns:
+            if c in mapa and mapa[c] not in df_t.columns:
+                novos_nomes[c] = mapa[c]
+        df_t = df_t.rename(columns=novos_nomes)
+
+        for col in colunas:
+            if col not in df_t.columns:
+                df_t[col] = ""
+
+        for col in ["id_terceiro", "id_chamado", "nome_terceiro", "link"]:
+            df_t[col] = df_t[col].fillna("").astype(str).str.strip()
+            df_t[col] = df_t[col].replace({"nan": "", "None": "", "null": "", "<NA>": ""})
+
+        return df_t
+
+    except Exception:
+        # A consulta de chamados continua funcionando mesmo se a aba terceiros
+        # estiver temporariamente indisponível.
+        return pd.DataFrame(columns=colunas)
+
+
+df_terceiros = carregar_dados_terceiros()
 
 # ============================================================
 # CLASSIFICAÇÃO DE STATUS
@@ -374,6 +463,269 @@ def processar_clique_grafico(event, tipo_filtro):
         st.session_state.filtro_dash_valor = val
         st.rerun()
 
+
+# ============================================================
+# INTEGRAÇÃO CITEL / ZENDESK
+# ============================================================
+
+CITEL_API_BASE = "https://citelsoftware.zendesk.com/api/v2"
+
+
+def obter_config_secreta(nome, padrao=""):
+    """
+    Procura primeiro no st.secrets e depois em variável de ambiente.
+    Assim nenhuma senha precisa ficar escrita no código.
+    """
+    try:
+        valor = st.secrets.get(nome, None)
+        if valor is not None:
+            return str(valor).strip()
+    except Exception:
+        pass
+    return str(os.getenv(nome, padrao) or "").strip()
+
+
+def extrair_id_ticket_citel(link, id_ticket=""):
+    link = str(link or "").strip()
+    achou = re.search(r"/requests/(\d+)", link, flags=re.IGNORECASE)
+    if achou:
+        return achou.group(1)
+
+    valor = str(id_ticket or "").strip()
+    if not valor or valor.casefold() in ["nan", "none", "null", "<na>"]:
+        return None
+
+    # Planilhas às vezes entregam 1261995 como "1261995.0".
+    achou_num = re.search(r"(\d+)", valor)
+    return achou_num.group(1) if achou_num else None
+
+
+def localizar_terceiros_do_chamado(chamado):
+    """
+    A planilha usa terceiros.id_chamado -> chamados.id_appsheet.
+    Mantém fallback pelo id_chamado visível caso a origem mude no futuro.
+    """
+    if df_terceiros.empty:
+        return df_terceiros.iloc[0:0].copy()
+
+    id_appsheet = str(chamado.get("id_appsheet", "") or "").strip()
+    id_visivel = str(chamado.get("id_chamado", "") or "").strip()
+
+    ids_validos = {x.casefold() for x in [id_appsheet, id_visivel] if x}
+    if not ids_validos:
+        return df_terceiros.iloc[0:0].copy()
+
+    serie_id = df_terceiros["id_chamado"].fillna("").astype(str).str.strip().str.casefold()
+    return df_terceiros[serie_id.isin(ids_validos)].copy()
+
+
+def _auth_citel():
+    """
+    Formas aceitas:
+      1) CITEL_OAUTH_TOKEN
+      2) CITEL_EMAIL + CITEL_PASSWORD (conta de usuário final do portal)
+
+    Para conta de usuário final, o acesso por senha depende de a instância
+    Zendesk da Citel permitir autenticação de API por senha.
+    """
+    oauth_token = obter_config_secreta("CITEL_OAUTH_TOKEN")
+    email = obter_config_secreta("CITEL_EMAIL")
+    senha = obter_config_secreta("CITEL_PASSWORD")
+
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Ferpam-Portal-TI/1.0",
+    }
+
+    if oauth_token:
+        headers["Authorization"] = f"Bearer {oauth_token}"
+        return headers, None, None
+
+    if email and senha:
+        return headers, (email, senha), None
+
+    return headers, None, (
+        "Integração Citel não configurada. Defina CITEL_EMAIL e "
+        "CITEL_PASSWORD (ou CITEL_OAUTH_TOKEN) nos secrets do Streamlit."
+    )
+
+
+def _ultimo_comentario_citel(ticket_id, role, headers, auth):
+    url = f"{CITEL_API_BASE}/requests/{ticket_id}/comments"
+    params = {
+        "role": role,
+        "sort_by": "created_at",
+        "sort_order": "desc",
+        "per_page": 1,
+    }
+
+    resposta = requests.get(
+        url,
+        headers=headers,
+        auth=auth,
+        params=params,
+        timeout=8,
+    )
+
+    if resposta.status_code == 401:
+        raise RuntimeError("Credenciais da Citel recusadas pela API.")
+    if resposta.status_code == 403:
+        raise RuntimeError("A conta configurada não possui acesso a este chamado da Citel.")
+    if resposta.status_code == 404:
+        raise RuntimeError("Chamado não encontrado no portal da Citel.")
+    if resposta.status_code == 429:
+        raise RuntimeError("A Citel limitou temporariamente as consultas automáticas.")
+    if not resposta.ok:
+        raise RuntimeError(f"API da Citel respondeu HTTP {resposta.status_code}.")
+
+    dados = resposta.json()
+    comentarios = dados.get("comments", [])
+    return comentarios[0] if comentarios else None
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def consultar_vez_resposta_citel(ticket_id):
+    """
+    Retorna apenas de quem é a vez de responder.
+    Não copia texto, anexos ou informações desnecessárias do chamado externo.
+    """
+    ticket_id = str(ticket_id or "").strip()
+    if not ticket_id:
+        return {
+            "ok": False,
+            "estado": "indisponivel",
+            "erro": "ID do chamado da Citel não identificado.",
+        }
+
+    headers, auth, erro_config = _auth_citel()
+    if erro_config:
+        return {"ok": False, "estado": "nao_configurado", "erro": erro_config}
+
+    try:
+        ultimo_agent = _ultimo_comentario_citel(ticket_id, "agent", headers, auth)
+        ultimo_usuario = _ultimo_comentario_citel(ticket_id, "end_user", headers, auth)
+
+        data_agent = pd.to_datetime(
+            ultimo_agent.get("created_at") if ultimo_agent else None,
+            errors="coerce",
+            utc=True,
+        )
+        data_usuario = pd.to_datetime(
+            ultimo_usuario.get("created_at") if ultimo_usuario else None,
+            errors="coerce",
+            utc=True,
+        )
+
+        tem_agent = pd.notna(data_agent)
+        tem_usuario = pd.notna(data_usuario)
+
+        if tem_agent and (not tem_usuario or data_agent > data_usuario):
+            return {
+                "ok": True,
+                "estado": "aguardando_ti",
+                "titulo": "Citel respondeu — aguardando TI",
+                "descricao": "A Citel foi a última a responder neste chamado.",
+                "ultima_data": data_agent.isoformat(),
+            }
+
+        if tem_usuario:
+            return {
+                "ok": True,
+                "estado": "aguardando_citel",
+                "titulo": "Aguardando resposta da Citel",
+                "descricao": "A TI/Ferpam foi a última a responder neste chamado.",
+                "ultima_data": data_usuario.isoformat(),
+            }
+
+        return {
+            "ok": False,
+            "estado": "sem_comentarios",
+            "erro": "Nenhum comentário público foi retornado pela Citel.",
+        }
+
+    except requests.RequestException:
+        return {
+            "ok": False,
+            "estado": "indisponivel",
+            "erro": "Não foi possível conectar ao portal da Citel.",
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "estado": "indisponivel",
+            "erro": str(e),
+        }
+
+
+def formatar_data_citel(valor):
+    dt = pd.to_datetime(valor, errors="coerce", utc=True)
+    if pd.isna(dt):
+        return None
+
+    # Tocantins / Brasília: UTC-3. Evita depender de biblioteca extra.
+    dt_local = dt.tz_convert("America/Araguaina")
+    return dt_local.strftime("%d/%m/%Y às %H:%M")
+
+
+def render_acompanhamento_citel(chamado):
+    vinculados = localizar_terceiros_do_chamado(chamado)
+    if vinculados.empty:
+        return
+
+    citel = vinculados[
+        vinculados["nome_terceiro"].fillna("").astype(str).str.contains("citel", case=False, na=False)
+        | vinculados["link"].fillna("").astype(str).str.contains("citelsoftware", case=False, na=False)
+    ].copy()
+
+    if citel.empty:
+        return
+
+    # Não polui chamados já concluídos com um "aguardando" antigo.
+    if classificar_status_grupo(chamado.get("status", "")) == "Concluídos":
+        return
+
+    st.divider()
+    st.subheader("🌐 Acompanhamento com a Citel")
+
+    for idx_citel, item in citel.reset_index(drop=True).iterrows():
+        link = str(item.get("link", "") or "").strip()
+        ticket_citel = extrair_id_ticket_citel(link, item.get("id_ticket", ""))
+
+        with st.container(border=True):
+            col_estado, col_link = st.columns([7, 3])
+
+            with col_estado:
+                if ticket_citel:
+                    st.caption(f"Chamado Citel #{ticket_citel}")
+
+                resultado_citel = consultar_vez_resposta_citel(ticket_citel)
+
+                if resultado_citel.get("ok") and resultado_citel.get("estado") == "aguardando_citel":
+                    st.warning("🟡 **Aguardando resposta da Citel**")
+                    st.write("A nossa TI já respondeu. Agora estamos esperando o retorno da Citel.")
+
+                elif resultado_citel.get("ok") and resultado_citel.get("estado") == "aguardando_ti":
+                    st.info("🔵 **Citel respondeu — aguardando TI**")
+                    st.write("A Citel já respondeu no chamado externo. Agora o retorno está com a nossa TI.")
+
+                else:
+                    st.info("⚪ **Não foi possível verificar a resposta da Citel agora.**")
+                    if st.session_state.get("autenticado_admin"):
+                        st.caption(f"Admin: {resultado_citel.get('erro', 'Erro não identificado')}")
+
+                data_str = formatar_data_citel(resultado_citel.get("ultima_data"))
+                if data_str:
+                    st.caption(f"Última interação considerada: {data_str}")
+
+            with col_link:
+                st.write("")
+                if link:
+                    st.link_button(
+                        "🔗 Abrir na Citel",
+                        link,
+                        use_container_width=True,
+                    )
+
 # ============================================================
 # TELA DETALHES DO TICKET
 # ============================================================
@@ -396,6 +748,10 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
     
     if chamado.get("eh_roadmap"):
         st.warning("🚀 **Este chamado é considerado ROADMAP (Tempo total superior a 6 dias).**")
+
+    # Se este chamado estiver vinculado à Citel, mostra apenas de quem é a vez
+    # de responder no chamado externo.
+    render_acompanhamento_citel(chamado)
 
     st.divider()
 
@@ -616,30 +972,37 @@ if st.session_state.tela == "dashboard":
 
         st.divider()
 
-        df_dash = df_op_base.copy()
-        df_dash["grupo_status"] = df_dash["status"].apply(classificar_status_grupo)
+        # Base do período selecionado (Ano/Mês).
+        df_dash_base = df_op_base.copy()
+        df_dash_base["grupo_status"] = df_dash_base["status"].apply(classificar_status_grupo)
+
+        # O filtro clicado agora é aplicado ANTES dos KPIs e dos gráficos.
+        # Assim toda a visualização se recalcula, e não apenas a tabela final.
+        tipo_f = st.session_state.filtro_dash_tipo
+        val_f = st.session_state.filtro_dash_valor
+
+        df_dash = df_dash_base.copy()
+
+        if tipo_f and val_f:
+            if tipo_f == "status_grupo":
+                df_dash = df_dash[df_dash["grupo_status"] == val_f]
+            elif tipo_f == "status":
+                df_dash = df_dash[df_dash["status"].str.casefold() == str(val_f).casefold()]
+            elif tipo_f == "prioridade":
+                df_dash = df_dash[df_dash["prioridade"].str.casefold() == str(val_f).casefold()]
+            elif tipo_f == "departamento":
+                df_dash = df_dash[df_dash["departamento"].str.casefold() == str(val_f).casefold()]
+            elif tipo_f == "tecnico":
+                df_dash = df_dash[df_dash["tecnico"].str.casefold() == str(val_f).casefold()]
+
+        # Todos os componentes abaixo usam a MESMA base filtrada.
+        df_filtrado_exibir = df_dash.copy()
 
         total_chamados = len(df_dash)
         concluidos = len(df_dash[df_dash["grupo_status"] == "Concluídos"])
         em_andamento = len(df_dash[df_dash["grupo_status"] == "Em Andamento"])
         pendentes = len(df_dash[df_dash["grupo_status"] == "Abertos"])
         taxa_conclusao = (concluidos / total_chamados * 100) if total_chamados > 0 else 0
-
-        df_filtrado_exibir = df_dash.copy()
-        tipo_f = st.session_state.filtro_dash_tipo
-        val_f = st.session_state.filtro_dash_valor
-
-        if tipo_f and val_f:
-            if tipo_f == "status_grupo":
-                df_filtrado_exibir = df_filtrado_exibir[df_filtrado_exibir["grupo_status"] == val_f]
-            elif tipo_f == "status":
-                df_filtrado_exibir = df_filtrado_exibir[df_filtrado_exibir["status"].str.casefold() == str(val_f).casefold()]
-            elif tipo_f == "prioridade":
-                df_filtrado_exibir = df_filtrado_exibir[df_filtrado_exibir["prioridade"].str.casefold() == str(val_f).casefold()]
-            elif tipo_f == "departamento":
-                df_filtrado_exibir = df_filtrado_exibir[df_filtrado_exibir["departamento"].str.casefold() == str(val_f).casefold()]
-            elif tipo_f == "tecnico":
-                df_filtrado_exibir = df_filtrado_exibir[df_filtrado_exibir["tecnico"].str.casefold() == str(val_f).casefold()]
 
         m1, m2, m3, m4, m5 = st.columns(5)
 
