@@ -42,10 +42,10 @@ def formatar_tempo(minutos):
         return f"{mins} min"
 
 # ============================================================
-# CARREGAMENTO E TRATAMENTO DE DADOS
+# CARREGAMENTO E TRATAMENTO DE DADOS (CORRIGIDO)
 # ============================================================
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=30)
 def carregar_dados():
     colunas_obrigatorias = [
         "id_chamado", "solicitante", "titulo", "ocorrencia", "status",
@@ -75,33 +75,65 @@ def carregar_dados():
             df_empty["dt_aval_parsed"] = pd.Series(dtype="datetime64[ns]")
             return df_empty
 
+        # Normalizar nomes de colunas
         df_raw.columns = [str(col).strip().lower() for col in df_raw.columns]
         df_raw = df_raw.loc[:, df_raw.columns != ""]
         df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
 
+        # Mapeamento estendido para evitar perda de colunas da planilha
         mapeamento_colunas = {
-            "id": "id_chamado", "ticket": "id_chamado", "n_chamado": "id_chamado",
-            "numero": "id_chamado", "num_chamado": "id_chamado", "descricao": "ocorrencia",
-            "detalhes": "ocorrencia", "solucao": "atividade_realizada", "resolucao": "atividade_realizada",
-            "nota": "nota_atendimento", "avaliacao": "nota_atendimento",
+            "id": "id_chamado", "ticket": "id_chamado", "n_chamado": "id_chamado", "chamado": "id_chamado",
+            "numero": "id_chamado", "num_chamado": "id_chamado", "protocolo": "id_chamado",
+            "descricao": "ocorrencia", "detalhes": "ocorrencia", "problema": "ocorrencia",
+            "solucao": "atividade_realizada", "resolucao": "atividade_realizada", "acao": "atividade_realizada",
+            "nota": "nota_atendimento", "avaliacao": "nota_atendimento", "csat": "nota_atendimento",
+            "nome": "solicitante", "usuario": "solicitante", "cliente": "solicitante",
+            "assunto": "titulo", "resumo": "titulo", "nome_chamado": "titulo",
+            "setor": "departamento", "area": "departamento",
+            "analista": "tecnico", "atendente": "tecnico", "responsavel": "tecnico"
         }
-        df_raw = df_raw.rename(columns=mapeamento_colunas)
 
+        # Aplica o mapeamento apenas para colunas que realmente existem
+        novos_nomes = {}
+        for c in df_raw.columns:
+            if c in mapeamento_colunas and mapeamento_colunas[c] not in df_raw.columns:
+                novos_nomes[c] = mapeamento_colunas[c]
+        df_raw = df_raw.rename(columns=novos_nomes)
+
+        # Garante que todas as colunas obrigatórias existam
         for col in colunas_obrigatorias:
             if col not in df_raw.columns:
                 df_raw[col] = ""
 
+        # Limpeza genérica de textos
         for col in ["id_chamado", "solicitante", "titulo", "ocorrencia", "status", 
                     "prioridade", "departamento", "tecnico", "cidade", "atividade_realizada"]:
             df_raw[col] = df_raw[col].fillna("").astype(str).str.strip()
             df_raw[col] = df_raw[col].replace({"nan": "", "None": "", "null": "", "<NA>": ""})
 
+        # Se id_chamado ficou vazio após limpeza, gera um ID baseado no índice da linha
+        vazios_id = df_raw["id_chamado"] == ""
+        if vazios_id.any():
+            df_raw.loc[vazios_id, "id_chamado"] = [str(i + 1) for i in df_raw[vazios_id].index]
+
+        # Se titulo ficou vazio, usa parte da ocorrência ou um padrão
+        vazios_titulo = df_raw["titulo"] == ""
+        if vazios_titulo.any():
+            df_raw.loc[vazios_titulo, "titulo"] = df_raw.loc[vazios_titulo, "ocorrencia"].str[:40]
+            df_raw.loc[df_raw["titulo"] == "", "titulo"] = "Chamado Sem Título"
+
+        # Se status ficou vazio
+        df_raw.loc[df_raw["status"] == "", "status"] = "Aberto"
+
+        # Filtro de exclusão de técnico
         padrao_nunes = r"mat[h]?eus\s+nunes"
         df_raw = df_raw[~df_raw["tecnico"].str.contains(padrao_nunes, case=False, regex=True, na=False)]
 
+        # Tratamento de Notas
         nota_limpa = df_raw["nota_atendimento"].astype(str).str.replace(",", ".", regex=False).str.strip()
         df_raw["nota_num"] = pd.to_numeric(nota_limpa, errors="coerce")
 
+        # Tratamento de Datas
         df_raw["dt_abertura"] = pd.to_datetime(df_raw["data_hora_abertura"], errors="coerce", dayfirst=True).fillna(
             pd.to_datetime(df_raw["data_inicial"], errors="coerce", dayfirst=True)
         )
@@ -295,9 +327,11 @@ def calcular_progresso(chamado):
 
 def get_status_badge(status):
     status_clean = str(status).strip()
+    if not status_clean:
+        status_clean = "Aberto"
     grupo = classificar_status_grupo(status_clean)
     color, bg, icon = ("#10b981", "rgba(16, 185, 129, 0.12)", "🟢") if grupo == "Concluídos" else ((AZUL_FERPAM, "rgba(0, 51, 153, 0.12)", "🔵") if grupo == "Em Andamento" else ("#d97706", "rgba(217, 119, 6, 0.12)", "🟡"))
-    return f"""<span style="background-color: {bg}; color: {color}; font-weight: 700; font-size: 0.82rem; padding: 4px 12px; border-radius: 20px; border: 1px solid {color}44; display: inline-flex; align-items: center; gap: 6px;">{icon} {status_clean if status_clean else 'Aberto'}</span>"""
+    return f"""<span style="background-color: {bg}; color: {color}; font-weight: 700; font-size: 0.82rem; padding: 4px 12px; border-radius: 20px; border: 1px solid {color}44; display: inline-flex; align-items: center; gap: 6px;">{icon} {status_clean}</span>"""
 
 def render_barra_progresso(pct, texto_estagio):
     bar_color = "#10b981" if pct == 100 else (AZUL_FERPAM if pct >= 50 else "#d97706")
@@ -371,17 +405,17 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
         st.markdown(get_status_badge(chamado["status"]), unsafe_allow_html=True)
         st.write("")
         st.markdown("**👤 Solicitante**")
-        st.write(chamado.get("solicitante", "-"))
+        st.write(chamado.get("solicitante") or "-")
     with col2:
         st.markdown("**⚠️ Prioridade**")
-        st.write(chamado.get("prioridade", "-"))
+        st.write(chamado.get("prioridade") or "-")
         st.markdown("**🏢 Departamento**")
-        st.write(chamado.get("departamento", "-"))
+        st.write(chamado.get("departamento") or "-")
     with col3:
         st.markdown("**👨‍💻 Técnico Responsável**")
-        st.write(chamado.get("tecnico", "Ainda não atribuído"))
+        st.write(chamado.get("tecnico") or "Ainda não atribuído")
         st.markdown("**📍 Cidade**")
-        st.write(chamado.get("cidade", "-"))
+        st.write(chamado.get("cidade") or "-")
 
     st.divider()
 
@@ -401,7 +435,7 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
     col_a, col_b = st.columns(2)
     with col_a:
         st.subheader("📋 Detalhes da Solicitação")
-        st.markdown(f"**Título:** {chamado.get('titulo', '-')}")
+        st.markdown(f"**Título:** {chamado.get('titulo') or '-'}")
         ocorrencia = str(chamado.get("ocorrencia", "")).strip()
         st.info(ocorrencia if ocorrencia and ocorrencia.casefold() != "nan" else "Nenhuma descrição fornecida.")
     with col_b:
@@ -461,6 +495,11 @@ if st.session_state.tela == "busca":
                     pct, status_txt = calcular_progresso(cham)
                     badge_html = get_status_badge(cham.get("status", ""))
                     bar_html = render_barra_progresso(pct, status_txt)
+                    
+                    solic = cham.get('solicitante') or 'Não Informado'
+                    dep = cham.get('departamento') or 'Geral'
+                    tit = cham.get('titulo') or 'Sem Título'
+                    
                     with st.container(border=True):
                         col1, col2 = st.columns([7, 3])
                         with col1:
@@ -469,8 +508,8 @@ if st.session_state.tela == "busca":
                                 <span style="font-size: 1.2rem; font-weight: 800;">🎫 #{t_id}</span>
                                 {badge_html}
                             </div>
-                            <div style="font-size: 1rem; font-weight: 700; margin-bottom: 4px;">{cham.get('titulo', 'Sem título')}</div>
-                            <div style="font-size: 0.85rem; color: #94a3b8;">👤 {cham.get('solicitante', '-')} | 🏢 {cham.get('departamento', '-')}</div>
+                            <div style="font-size: 1rem; font-weight: 700; margin-bottom: 4px;">{tit}</div>
+                            <div style="font-size: 0.85rem; color: #94a3b8;">👤 {solic} | 🏢 {dep}</div>
                             """, unsafe_allow_html=True)
                             st.markdown(bar_html, unsafe_allow_html=True)
                         with col2:
@@ -498,6 +537,11 @@ if st.session_state.tela == "busca":
                 pct, status_txt = calcular_progresso(cham)
                 badge_html = get_status_badge(cham.get("status", ""))
                 bar_html = render_barra_progresso(pct, status_txt)
+                
+                solic = cham.get('solicitante') or 'Não Informado'
+                dep = cham.get('departamento') or 'Geral'
+                tit = cham.get('titulo') or 'Sem Título'
+
                 with st.container(border=True):
                     col1, col2 = st.columns([7, 3])
                     with col1:
@@ -506,8 +550,8 @@ if st.session_state.tela == "busca":
                             <span style="font-size: 1.2rem; font-weight: 800;">🎫 #{t_id}</span>
                             {badge_html}
                         </div>
-                        <div style="font-size: 1rem; font-weight: 700;">{cham.get('titulo', 'Sem título')}</div>
-                        <div style="font-size: 0.85rem; color: #94a3b8;">👤 {cham.get('solicitante', '-')} | 🏢 {cham.get('departamento', '-')}</div>
+                        <div style="font-size: 1rem; font-weight: 700;">{tit}</div>
+                        <div style="font-size: 0.85rem; color: #94a3b8;">👤 {solic} | 🏢 {dep}</div>
                         """, unsafe_allow_html=True)
                         st.markdown(bar_html, unsafe_allow_html=True)
                     with col2:
@@ -762,7 +806,6 @@ if st.session_state.tela == "dashboard":
                 col_t1, col_t2 = st.columns([1.3, 1])
                 
                 with col_t1:
-                    # CABEÇALHO DA TABELA INTERATIVA
                     c_head1, c_head2, c_head3, c_head4, c_head5 = st.columns([2.5, 1.5, 2, 2, 2])
                     c_head1.markdown("**Técnico**")
                     c_head2.markdown("**Chamados**")
@@ -815,7 +858,6 @@ if st.session_state.tela == "dashboard":
                         st.session_state.tecnico_sla_selecionado = tec_graf
                         st.rerun()
 
-            # SEÇÃO EXIBIDA QUANDO UM TÉCNICO É SELECIONADO
             if st.session_state.tecnico_sla_selecionado:
                 tec_ativo = st.session_state.tecnico_sla_selecionado
                 st.divider()
@@ -837,8 +879,8 @@ if st.session_state.tela == "dashboard":
                     
                     for idx_c, item_c in df_tec_chamados.reset_index(drop=True).iterrows():
                         t_id_c = str(item_c["id_chamado"]).strip()
-                        tit_c = item_c.get("titulo", "Sem título")
-                        solic_c = item_c.get("solicitante", "-")
+                        tit_c = item_c.get("titulo") or "Sem título"
+                        solic_c = item_c.get("solicitante") or "-"
                         
                         t_resp_c = formatar_tempo(item_c.get("min_ate_tecnico"))
                         t_exec_c = formatar_tempo(item_c.get("min_resolucao"))
@@ -848,7 +890,7 @@ if st.session_state.tela == "dashboard":
                             col_c1, col_c2, col_c3 = st.columns([5, 3, 2])
                             with col_c1:
                                 st.markdown(f"**🎫 #{t_id_c} - {tit_c}**")
-                                st.caption(f"👤 Solicitante: **{solic_c}** | 🏢 {item_c.get('departamento', '-')}")
+                                st.caption(f"👤 Solicitante: **{solic_c}** | 🏢 {item_c.get('departamento') or '-'}")
                             with col_c2:
                                 st.markdown(f"⏱️ **Atend.:** {t_resp_c} | 🔧 **Exec.:** {t_exec_c}")
                                 st.markdown(f"🏁 **Total:** `{t_tot_c}`")
@@ -857,6 +899,19 @@ if st.session_state.tela == "dashboard":
                                 st.button("👁️ Ver detalhes", key=f"btn_sla_dt_{t_id_c}_{idx_c}", on_click=abrir_ticket, args=(t_id_c,), use_container_width=True)
 
         st.divider()
+
+        st.subheader("🚀 Projetos & Chamados de Roadmap (> 6 dias)")
+        if df_roadmap.empty:
+            st.info("Nenhum chamado categorizado como Roadmap no período.")
+        else:
+            st.caption(f"Total de chamados de Roadmap identificados: **{len(df_roadmap)}**")
+            rm1, rm2, rm3 = st.columns(3)
+            with rm1:
+                st.metric("⏱️ Méd. Resposta Roadmap", formatar_tempo(df_roadmap["min_ate_tecnico"].mean()))
+            with rm2:
+                st.metric("🔧 Méd. Execução Roadmap", formatar_tempo(df_roadmap["min_resolucao"].mean()))
+            with rm3:
+                st.metric("🏁 Méd. Total Conclusão Roadmap", formatar_tempo(df_roadmap["min_total"].mean()))
 
     # ============================================================
     # TAB 3: SATISFAÇÃO & NOTAS (CSAT)
@@ -934,12 +989,12 @@ if st.session_state.tela == "dashboard":
                 with st.container(border=True):
                     col1, col2 = st.columns([8, 2])
                     with col1:
-                        st.markdown(f"**🎫 #{t_id} | {item.get('titulo', 'Sem Título')}**")
+                        st.markdown(f"**🎫 #{t_id} | {item.get('titulo') or 'Sem Título'}**")
                         if n_str:
                             st.markdown(f"**Avaliação:** {n_str}")
                         if texto_aval and texto_aval.casefold() != "nan":
                             st.markdown(f"> *\"{texto_aval}\"*")
-                        st.caption(f"👤 Solicitante: **{item.get('solicitante', '-')}** | 👨‍💻 Técnico: **{item.get('tecnico', 'Não informado')}**")
+                        st.caption(f"👤 Solicitante: **{item.get('solicitante') or '-'}** | 👨‍💻 Técnico: **{item.get('tecnico') or 'Não informado'}**")
                     with col2:
                         st.write("")
                         st.caption(f"📅 {data_aval_str}")
