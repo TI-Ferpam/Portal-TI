@@ -1095,9 +1095,9 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
             if coment_aval and coment_aval.casefold() != "nan":
                 st.markdown("💬 **Comentário do Solicitante:**")
                 st.write(f'"{coment_aval}"')
-    st.stop()
+                st.divider()
 
-
+    
     # Se este chamado estiver vinculado à Citel, mostra apenas de quem é a vez
     # de responder no chamado externo.
     render_acompanhamento_citel(chamado)
@@ -1122,7 +1122,10 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
         st.markdown("**📍 Cidade**")
         st.write(chamado.get("cidade") or "-")
 
-    st.divider()
+
+    st.stop()
+
+
 
 # ============================================================
 # TELA DE BUSCA DE CHAMADOS
