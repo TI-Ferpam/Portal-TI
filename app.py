@@ -1,9 +1,14 @@
 import os
 import re
 import html
+import hmac
+import unicodedata
+import uuid
+from difflib import SequenceMatcher
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import requests
 import streamlit as st
 from services.sheets import carregar_chamados
@@ -15,6 +20,12 @@ try:
     from services.sheets import carregar_terceiros
 except ImportError:
     carregar_terceiros = None
+
+try:
+    from services.sheets import carregar_auditoria, registrar_auditoria
+except ImportError:
+    carregar_auditoria = None
+    registrar_auditoria = None
 
 # ============================================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -301,16 +312,47 @@ def classificar_status_grupo(status_str):
 for key, val in [
     ("tela", "busca"), 
     ("ticket_aberto", None), 
-    ("autenticado_admin", False), 
+    ("autenticado_admin", False),
+    ("admin_usuario", ""),
+    ("sessao_auditoria", ""),
     ("filtro_dash_tipo", None), 
     ("filtro_dash_valor", None),
-    ("tecnico_sla_selecionado", None)
+    ("tecnico_sla_selecionado", None),
+    ("central_terceiros_live", []),
 ]:
     if key not in st.session_state:
         st.session_state[key] = val
 
+if not st.session_state.sessao_auditoria:
+    st.session_state.sessao_auditoria = uuid.uuid4().hex[:16]
+
+
+def registrar_auditoria_seguro(evento, ticket="", detalhes="", usuario=None):
+    """Registra auditoria sem permitir que falhas de log derrubem o portal."""
+    if registrar_auditoria is None:
+        return False
+
+    usuario_final = str(
+        usuario if usuario is not None else st.session_state.get("admin_usuario", "admin")
+    ).strip() or "admin"
+
+    try:
+        return bool(registrar_auditoria(
+            usuario_admin=usuario_final,
+            evento=str(evento or "")[:80],
+            ticket=str(ticket or "")[:80],
+            detalhes=str(detalhes or "")[:500],
+            sessao=str(st.session_state.get("sessao_auditoria", ""))[:80],
+        ))
+    except Exception:
+        return False
+
+
 def abrir_ticket(ticket_id):
-    st.session_state.ticket_aberto = str(ticket_id).strip()
+    ticket_limpo = str(ticket_id).strip()
+    if st.session_state.get("autenticado_admin"):
+        registrar_auditoria_seguro("ABRIR_TICKET_ADMIN", ticket=ticket_limpo)
+    st.session_state.ticket_aberto = ticket_limpo
     st.session_state.tela = "ticket"
 
 def voltar_busca():
@@ -375,17 +417,43 @@ if not st.session_state.autenticado_admin:
     with st.sidebar.expander("🔑 Áreas Restritas (Técnicos/Admin)", expanded=False):
         usuario_login = st.text_input("Usuário", key="login_usr")
         senha_login = st.text_input("Senha", type="password", key="login_pwd")
+
+        try:
+            admin_user_config = str(st.secrets.get("ADMIN_USER", "")).strip()
+            admin_pass_config = str(st.secrets.get("ADMIN_PASSWORD", ""))
+        except Exception:
+            admin_user_config = ""
+            admin_pass_config = ""
+
+        if not admin_user_config or not admin_pass_config:
+            st.caption("⚠️ Login administrativo ainda não configurado nos Secrets.")
+
         if st.button("Entrar", type="primary", use_container_width=True):
-            if usuario_login.strip() == "admin" and senha_login == "admin":
+            configurado = bool(admin_user_config and admin_pass_config)
+            usuario_ok = configurado and hmac.compare_digest(usuario_login.strip(), admin_user_config)
+            senha_ok = configurado and hmac.compare_digest(str(senha_login), admin_pass_config)
+
+            if usuario_ok and senha_ok:
                 st.session_state.autenticado_admin = True
+                st.session_state.admin_usuario = admin_user_config
+                registrar_auditoria_seguro(
+                    "LOGIN_ADMIN",
+                    detalhes="Login administrativo realizado com sucesso.",
+                    usuario=admin_user_config,
+                )
                 st.success("Login efetuado!")
                 st.rerun()
+            elif not configurado:
+                st.error("Configure ADMIN_USER e ADMIN_PASSWORD nos Secrets do Streamlit.")
             else:
                 st.error("Usuário ou senha incorretos.")
 else:
-    st.sidebar.success("⚡ Conectado como ADMIN")
+    nome_admin_exibicao = st.session_state.get("admin_usuario") or "ADMIN"
+    st.sidebar.success(f"⚡ Conectado como {nome_admin_exibicao}")
     if st.sidebar.button("🚪 Sair do Modo Admin", use_container_width=True):
+        registrar_auditoria_seguro("LOGOUT_ADMIN", detalhes="Sessão administrativa encerrada.")
         st.session_state.autenticado_admin = False
+        st.session_state.admin_usuario = ""
         st.session_state.tela = "busca"
         limpar_filtro_dash()
         st.rerun()
@@ -398,6 +466,7 @@ if st.session_state.autenticado_admin:
 opcao_menu = st.sidebar.radio("📍 Navegação", opcoes_menu, index=0 if st.session_state.tela in ["busca", "ticket"] else 1)
 
 if opcao_menu == "📊 Dashboard de Indicadores" and st.session_state.tela != "dashboard":
+    registrar_auditoria_seguro("ABRIR_DASHBOARD", detalhes="Acesso ao dashboard administrativo.")
     st.session_state.tela = "dashboard"
 elif opcao_menu == "🔍 Consultar Chamados" and st.session_state.tela == "dashboard":
     st.session_state.tela = "busca"
@@ -1021,6 +1090,12 @@ def render_acompanhamento_citel(chamado):
                         use_container_width=True,
                         help="Abre somente as mensagens públicas do chamado da Citel.",
                     ):
+                        if st.session_state.get("autenticado_admin"):
+                            registrar_auditoria_seguro(
+                                "VER_HISTORICO_CITEL",
+                                ticket=str(chamado.get("id_chamado", "")),
+                                detalhes=f"Chamado externo Citel #{ticket_citel}",
+                            )
                         abrir_historico_citel_dialog(ticket_citel, link)
 
                 if link:
@@ -1029,6 +1104,455 @@ def render_acompanhamento_citel(chamado):
                         link,
                         use_container_width=True,
                     )
+
+
+# ============================================================
+# FERRAMENTAS ADMINISTRATIVAS / INTELIGÊNCIA OPERACIONAL
+# ============================================================
+
+STOPWORDS_PROBLEMAS = {
+    "a", "o", "as", "os", "um", "uma", "uns", "umas", "de", "da", "do", "das", "dos",
+    "e", "em", "no", "na", "nos", "nas", "para", "por", "com", "sem", "ao", "aos", "que",
+    "se", "me", "meu", "minha", "meus", "minhas", "favor", "favor", "solicito", "solicita",
+    "solicitacao", "solicitação", "preciso", "necessario", "necessário", "chamado", "ticket",
+    "erro", "problema", "ajuda", "suporte", "ti", "nao", "não", "esta", "está", "foi", "ser",
+    "pra", "pro", "pela", "pelo", "uma", "usuario", "usuário", "sistema"
+}
+
+DIAS_SEMANA = {
+    0: "Segunda",
+    1: "Terça",
+    2: "Quarta",
+    3: "Quinta",
+    4: "Sexta",
+    5: "Sábado",
+    6: "Domingo",
+}
+
+
+def _normalizar_sem_acento(valor):
+    texto = unicodedata.normalize("NFKD", str(valor or ""))
+    return "".join(c for c in texto if not unicodedata.combining(c))
+
+
+def _tokens_problema(valor):
+    texto = _normalizar_sem_acento(valor).casefold()
+    texto = re.sub(r"[^a-z0-9]+", " ", texto)
+    tokens = []
+    for token in texto.split():
+        if len(token) < 3 or token.isdigit() or token in STOPWORDS_PROBLEMAS:
+            continue
+        if token not in tokens:
+            tokens.append(token)
+    return tokens
+
+
+def _assinatura_problema(linha):
+    titulo = str(linha.get("titulo", "") or "").strip()
+    ocorrencia = str(linha.get("ocorrencia", "") or "").strip()
+    tokens = _tokens_problema(titulo)
+    if len(tokens) < 2:
+        tokens = _tokens_problema(f"{titulo} {ocorrencia[:250]}")
+    if not tokens:
+        return ""
+    # Ordenação torna títulos como "Impressora caixa" e "Caixa impressora" equivalentes.
+    return " ".join(sorted(tokens[:5]))
+
+
+def obter_problemas_recorrentes(df_base, minimo=2, limite=15):
+    if df_base.empty:
+        return pd.DataFrame(columns=["Problema", "Quantidade", "Exemplo", "Departamentos", "Tickets"])
+
+    trabalho = df_base.copy()
+    trabalho["_assinatura"] = trabalho.apply(_assinatura_problema, axis=1)
+    trabalho = trabalho[trabalho["_assinatura"] != ""]
+    if trabalho.empty:
+        return pd.DataFrame(columns=["Problema", "Quantidade", "Exemplo", "Departamentos", "Tickets"])
+
+    linhas = []
+    for assinatura, grupo in trabalho.groupby("_assinatura"):
+        qtd = len(grupo)
+        if qtd < minimo:
+            continue
+        titulos = [str(v).strip() for v in grupo["titulo"].tolist() if str(v).strip()]
+        exemplo = titulos[0] if titulos else assinatura.title()
+        departamentos = sorted({str(v).strip() for v in grupo["departamento"].tolist() if str(v).strip()})
+        tickets = [str(v).strip() for v in grupo["id_chamado"].tolist() if str(v).strip()]
+        linhas.append({
+            "Problema": assinatura,
+            "Quantidade": qtd,
+            "Exemplo": exemplo[:120],
+            "Departamentos": ", ".join(departamentos[:4]) or "-",
+            "Tickets": ", ".join(tickets[:8]),
+        })
+
+    if not linhas:
+        return pd.DataFrame(columns=["Problema", "Quantidade", "Exemplo", "Departamentos", "Tickets"])
+
+    return pd.DataFrame(linhas).sort_values(["Quantidade", "Problema"], ascending=[False, True]).head(limite)
+
+
+def _similaridade_problemas(tokens_a, tokens_b, texto_a="", texto_b=""):
+    set_a, set_b = set(tokens_a), set(tokens_b)
+    if not set_a or not set_b:
+        return 0.0
+    jaccard = len(set_a & set_b) / max(1, len(set_a | set_b))
+    seq = SequenceMatcher(None, texto_a, texto_b).ratio() if texto_a and texto_b else 0.0
+    return max(jaccard, seq * 0.85)
+
+
+def detectar_possiveis_recorrencias(df_base, dias=7, minimo=3, limite_registros=250):
+    if df_base.empty or "dt_abertura" not in df_base.columns:
+        return []
+
+    agora = pd.Timestamp.now()
+    inicio = agora - pd.Timedelta(days=int(dias))
+    recente = df_base[df_base["dt_abertura"].notna() & (df_base["dt_abertura"] >= inicio)].copy()
+    recente = recente.sort_values("dt_abertura", ascending=False).head(limite_registros)
+    if recente.empty:
+        return []
+
+    itens = []
+    for _, row in recente.iterrows():
+        titulo = str(row.get("titulo", "") or "").strip()
+        ocorrencia = str(row.get("ocorrencia", "") or "").strip()
+        texto = f"{titulo} {ocorrencia[:300]}".strip()
+        tokens = _tokens_problema(texto)
+        if not tokens:
+            continue
+        itens.append({
+            "ticket": str(row.get("id_chamado", "") or "").strip(),
+            "titulo": titulo or "Sem título",
+            "departamento": str(row.get("departamento", "") or "").strip(),
+            "data": row.get("dt_abertura"),
+            "tokens": tokens,
+            "texto_norm": " ".join(tokens),
+        })
+
+    grupos = []
+    for item in itens:
+        melhor_indice = None
+        melhor_score = 0.0
+        for i, grupo in enumerate(grupos):
+            representante = grupo[0]
+            score = _similaridade_problemas(
+                item["tokens"],
+                representante["tokens"],
+                item["texto_norm"],
+                representante["texto_norm"],
+            )
+            if score > melhor_score:
+                melhor_score = score
+                melhor_indice = i
+
+        if melhor_indice is not None and melhor_score >= 0.52:
+            grupos[melhor_indice].append(item)
+        else:
+            grupos.append([item])
+
+    grupos_validos = [g for g in grupos if len(g) >= int(minimo)]
+    grupos_validos.sort(key=lambda g: (len(g), max(x["data"] for x in g if pd.notna(x["data"]))), reverse=True)
+    return grupos_validos[:10]
+
+
+def calcular_backlog_ate(df_base, fim_periodo):
+    if df_base.empty:
+        return 0
+    abriu = df_base["dt_abertura"].notna() & (df_base["dt_abertura"] <= fim_periodo)
+    ainda_nao_fechou = df_base["dt_conclusao_efetiva"].isna() | (df_base["dt_conclusao_efetiva"] > fim_periodo)
+    return int((abriu & ainda_nao_fechou).sum())
+
+
+def metricas_mes(df_base, periodo):
+    inicio = periodo.to_timestamp(how="start")
+    fim = periodo.to_timestamp(how="end")
+    abertos = df_base[df_base["dt_abertura"].notna() & (df_base["dt_abertura"] >= inicio) & (df_base["dt_abertura"] <= fim)]
+    concluidos = df_base[
+        df_base["dt_conclusao_efetiva"].notna()
+        & (df_base["dt_conclusao_efetiva"] >= inicio)
+        & (df_base["dt_conclusao_efetiva"] <= fim)
+    ]
+    avaliados = df_base[
+        df_base["dt_aval_parsed"].notna()
+        & (df_base["dt_aval_parsed"] >= inicio)
+        & (df_base["dt_aval_parsed"] <= fim)
+        & df_base["nota_num"].notna()
+        & (df_base["nota_num"] > 0)
+    ]
+    sla_mes = abertos[abertos["sla_valido"] == True]
+
+    return {
+        "abertos": len(abertos),
+        "concluidos": len(concluidos),
+        "backlog": calcular_backlog_ate(df_base, fim),
+        "sla_medio": sla_mes["min_total"].mean() if not sla_mes.empty else None,
+        "csat": avaliados["nota_num"].mean() if not avaliados.empty else None,
+        "avaliacoes": len(avaliados),
+    }
+
+
+def _delta_num(atual, anterior, sufixo=""):
+    if atual is None or anterior is None or pd.isna(atual) or pd.isna(anterior):
+        return None
+    diff = atual - anterior
+    sinal = "+" if diff > 0 else ""
+    return f"{sinal}{diff:.1f}{sufixo}" if isinstance(diff, float) else f"{sinal}{diff}{sufixo}"
+
+
+def montar_base_terceiros_admin():
+    colunas_saida = [
+        "id_chamado", "ticket_ferpam", "titulo", "status_ferpam", "grupo_status",
+        "tecnico", "departamento", "nome_terceiro", "link", "id_ticket", "roadmap",
+        "data_solicitação", "ultima_atualizacao"
+    ]
+    if df_terceiros.empty:
+        return pd.DataFrame(columns=colunas_saida)
+
+    lookup = {}
+    for _, chamado in df.iterrows():
+        for chave in [chamado.get("id_appsheet", ""), chamado.get("id_chamado", "")]:
+            chave_limpa = str(chave or "").strip().casefold()
+            if chave_limpa and chave_limpa not in lookup:
+                lookup[chave_limpa] = chamado
+
+    registros = []
+    for _, terceiro in df_terceiros.iterrows():
+        chave = str(terceiro.get("id_chamado", "") or "").strip().casefold()
+        chamado = lookup.get(chave)
+        status = str(chamado.get("status", "") if chamado is not None else "").strip()
+        registros.append({
+            "id_chamado": str(terceiro.get("id_chamado", "") or "").strip(),
+            "ticket_ferpam": str(chamado.get("id_chamado", "") if chamado is not None else "").strip(),
+            "titulo": str(chamado.get("titulo", "") if chamado is not None else "").strip(),
+            "status_ferpam": status,
+            "grupo_status": classificar_status_grupo(status) if status else "Não localizado",
+            "tecnico": str(chamado.get("tecnico", "") if chamado is not None else "").strip(),
+            "departamento": str(chamado.get("departamento", "") if chamado is not None else "").strip(),
+            "nome_terceiro": str(terceiro.get("nome_terceiro", "") or "").strip() or "Não informado",
+            "link": str(terceiro.get("link", "") or "").strip(),
+            "id_ticket": str(terceiro.get("id_ticket", "") or "").strip(),
+            "roadmap": str(terceiro.get("roadmap", "") or "").strip(),
+            "data_solicitação": str(terceiro.get("data_solicitação", "") or "").strip(),
+            "ultima_atualizacao": str(terceiro.get("ultima_atualizacao", "") or "").strip(),
+        })
+
+    return pd.DataFrame(registros, columns=colunas_saida)
+
+
+def _resumo_texto(valor, limite=260):
+    texto = re.sub(r"\s+", " ", str(valor or "")).strip()
+    if len(texto) > limite:
+        return texto[: limite - 1].rstrip() + "…"
+    return texto
+
+
+def gerar_resumo_automatico_chamado(chamado):
+    ticket = str(chamado.get("id_chamado", "") or "").strip()
+    status = str(chamado.get("status", "") or "Aberto").strip()
+    prioridade = str(chamado.get("prioridade", "") or "Não informada").strip()
+    tecnico = str(chamado.get("tecnico", "") or "Não atribuído").strip()
+    solicitante = str(chamado.get("solicitante", "") or "Não informado").strip()
+    departamento = str(chamado.get("departamento", "") or "Não informado").strip()
+    titulo = _resumo_texto(chamado.get("titulo", "Sem título"), 160)
+    atividade = _resumo_texto(chamado.get("atividade_realizada", ""), 260)
+    abertura = chamado.get("dt_abertura")
+    abertura_str = abertura.strftime("%d/%m/%Y às %H:%M") if pd.notna(abertura) else "data não informada"
+
+    partes = [
+        f"Chamado #{ticket} aberto em {abertura_str} por {solicitante}, do departamento {departamento}.",
+        f"Assunto: {titulo}. Status atual: {status}; prioridade: {prioridade}; técnico: {tecnico}.",
+    ]
+
+    if atividade:
+        partes.append(f"Última atividade registrada: {atividade}")
+
+    proximo_passo = "Acompanhar o atendimento conforme o status atual."
+    grupo = classificar_status_grupo(status)
+    if grupo == "Concluídos":
+        proximo_passo = "Chamado finalizado; nenhuma ação operacional pendente foi identificada."
+    elif not tecnico or tecnico.casefold() in {"não atribuído", "nao atribuido", "nan"}:
+        proximo_passo = "Ação sugerida: atribuir um técnico responsável."
+    elif "solicitante" in status.casefold():
+        proximo_passo = "Aguardando retorno do solicitante."
+
+    vinculados = localizar_terceiros_do_chamado(chamado)
+    if not vinculados.empty:
+        citel = vinculados[
+            vinculados["nome_terceiro"].fillna("").astype(str).str.contains("citel", case=False, na=False)
+            | vinculados["link"].fillna("").astype(str).str.contains("citelsoftware", case=False, na=False)
+        ]
+        if not citel.empty:
+            item = citel.iloc[0]
+            ticket_citel = extrair_id_ticket_citel(item.get("link", ""), item.get("id_ticket", ""))
+            situacao = consultar_vez_resposta_citel(ticket_citel)
+            if situacao.get("ok") and situacao.get("estado") == "aguardando_ti":
+                proximo_passo = f"Ação sugerida: a Citel respondeu no chamado #{ticket_citel}; o próximo retorno está com a TI/Ferpam."
+            elif situacao.get("ok") and situacao.get("estado") == "aguardando_citel":
+                proximo_passo = f"Aguardando resposta da Citel no chamado externo #{ticket_citel}."
+
+    partes.append(proximo_passo)
+    return " ".join(partes)
+
+
+def _adicionar_evento_timeline(eventos, data, origem, titulo, descricao=""):
+    dt = pd.to_datetime(data, errors="coerce", dayfirst=True)
+    if pd.isna(dt):
+        return
+    eventos.append({
+        "data": dt,
+        "origem": origem,
+        "titulo": titulo,
+        "descricao": _resumo_texto(descricao, 1000),
+    })
+
+
+def montar_linha_tempo_unica(chamado, incluir_citel=False):
+    eventos = []
+    _adicionar_evento_timeline(
+        eventos,
+        chamado.get("dt_abertura"),
+        "Ferpam",
+        "Chamado aberto",
+        chamado.get("ocorrencia", ""),
+    )
+    _adicionar_evento_timeline(
+        eventos,
+        chamado.get("dt_tecnico"),
+        "Ferpam",
+        "Atendimento técnico iniciado",
+        f"Técnico: {chamado.get('tecnico') or 'Não informado'}",
+    )
+
+    vinculados = localizar_terceiros_do_chamado(chamado)
+    for _, terceiro in vinculados.iterrows():
+        nome = str(terceiro.get("nome_terceiro", "") or "Terceiro").strip() or "Terceiro"
+        _adicionar_evento_timeline(
+            eventos,
+            terceiro.get("data_solicitação"),
+            nome,
+            f"Terceiro acionado: {nome}",
+            f"Ticket externo: {terceiro.get('id_ticket') or '-'}",
+        )
+        _adicionar_evento_timeline(
+            eventos,
+            terceiro.get("ultima_atualizacao"),
+            nome,
+            f"Atualização registrada do terceiro: {nome}",
+            "Data de última atualização registrada na planilha de terceiros.",
+        )
+
+        eh_citel = "citel" in nome.casefold() or "citelsoftware" in str(terceiro.get("link", "")).casefold()
+        if incluir_citel and eh_citel:
+            ticket_citel = extrair_id_ticket_citel(terceiro.get("link", ""), terceiro.get("id_ticket", ""))
+            historico = consultar_historico_citel(ticket_citel)
+            if historico.get("ok"):
+                for mensagem in historico.get("mensagens", []):
+                    papel = mensagem.get("papel")
+                    autor = "Citel" if papel == "agent" else "TI / Ferpam"
+                    _adicionar_evento_timeline(
+                        eventos,
+                        mensagem.get("created_at"),
+                        autor,
+                        f"Mensagem pública — {autor}",
+                        mensagem.get("plain_body", ""),
+                    )
+
+    atividade = str(chamado.get("atividade_realizada", "") or "").strip()
+    if atividade:
+        _adicionar_evento_timeline(
+            eventos,
+            chamado.get("dt_conclusao_efetiva"),
+            "Ferpam",
+            "Atividade / resolução registrada",
+            atividade,
+        )
+
+    _adicionar_evento_timeline(
+        eventos,
+        chamado.get("dt_conclusao_efetiva"),
+        "Ferpam",
+        "Chamado concluído",
+        f"Status: {chamado.get('status') or '-'}",
+    )
+
+    nota = chamado.get("nota_num")
+    if pd.notna(nota) and float(nota) > 0:
+        _adicionar_evento_timeline(
+            eventos,
+            chamado.get("dt_aval_parsed"),
+            "Solicitante",
+            f"Atendimento avaliado: {float(nota):.0f}/5",
+            chamado.get("comentario_avaliacao", ""),
+        )
+
+    eventos.sort(key=lambda e: e["data"])
+    return eventos
+
+
+def render_ferramentas_admin_ticket(chamado):
+    if not st.session_state.get("autenticado_admin"):
+        return
+
+    st.divider()
+    st.subheader("🧠 Ferramentas administrativas do chamado")
+
+    with st.container(border=True):
+        st.markdown("#### Resumo automático do chamado")
+        st.write(gerar_resumo_automatico_chamado(chamado))
+        st.caption("Resumo operacional gerado por regras a partir dos dados do chamado e, quando houver, da situação atual da Citel.")
+
+    ticket = str(chamado.get("id_chamado", "") or "").strip()
+    chave_timeline = f"timeline_citel_{ticket}"
+    if chave_timeline not in st.session_state:
+        st.session_state[chave_timeline] = False
+
+    with st.expander("🕓 Linha do tempo única", expanded=False):
+        vinculados = localizar_terceiros_do_chamado(chamado)
+        tem_citel = False
+        if not vinculados.empty:
+            tem_citel = bool((
+                vinculados["nome_terceiro"].fillna("").astype(str).str.contains("citel", case=False, na=False)
+                | vinculados["link"].fillna("").astype(str).str.contains("citelsoftware", case=False, na=False)
+            ).any())
+
+        if tem_citel:
+            col_t1, col_t2 = st.columns([7, 3])
+            with col_t1:
+                st.caption("A linha do tempo começa com eventos internos. Você pode incluir também as mensagens públicas da Citel.")
+            with col_t2:
+                if not st.session_state[chave_timeline]:
+                    if st.button("🌐 Incluir Citel", key=f"btn_timeline_citel_{ticket}", use_container_width=True):
+                        st.session_state[chave_timeline] = True
+                        registrar_auditoria_seguro(
+                            "CARREGAR_TIMELINE_CITEL",
+                            ticket=ticket,
+                            detalhes="Mensagens públicas da Citel incluídas na linha do tempo administrativa.",
+                        )
+                else:
+                    if st.button("Ocultar Citel", key=f"btn_timeline_ocultar_{ticket}", use_container_width=True):
+                        st.session_state[chave_timeline] = False
+
+        eventos = montar_linha_tempo_unica(chamado, incluir_citel=st.session_state[chave_timeline])
+        if not eventos:
+            st.info("Não há datas suficientes para montar a linha do tempo deste chamado.")
+        else:
+            for evento in eventos:
+                data = evento["data"]
+                if getattr(data, "tzinfo", None) is not None:
+                    try:
+                        data = data.tz_convert("America/Araguaina")
+                    except Exception:
+                        pass
+                data_str = data.strftime("%d/%m/%Y às %H:%M")
+                with st.container(border=True):
+                    c1, c2 = st.columns([7, 3])
+                    with c1:
+                        st.markdown(f"**{evento['titulo']}**")
+                        st.caption(f"Origem: {evento['origem']}")
+                    with c2:
+                        st.caption(data_str)
+                    if evento.get("descricao"):
+                        st.write(evento["descricao"])
 
 # ============================================================
 # TELA DETALHES DO TICKET
@@ -1052,6 +1576,32 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
     
     if chamado.get("eh_roadmap"):
         st.warning("🚀 **Este chamado é considerado ROADMAP (Tempo total superior a 6 dias).**")
+
+    # Se este chamado estiver vinculado à Citel, mostra apenas de quem é a vez
+    # de responder no chamado externo.
+    render_acompanhamento_citel(chamado)
+
+    st.divider()
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("**Status Atual**")
+        st.markdown(get_status_badge(chamado["status"]), unsafe_allow_html=True)
+        st.write("")
+        st.markdown("**👤 Solicitante**")
+        st.write(chamado.get("solicitante") or "-")
+    with col2:
+        st.markdown("**⚠️ Prioridade**")
+        st.write(chamado.get("prioridade") or "-")
+        st.markdown("**🏢 Departamento**")
+        st.write(chamado.get("departamento") or "-")
+    with col3:
+        st.markdown("**👨‍💻 Técnico Responsável**")
+        st.write(chamado.get("tecnico") or "Ainda não atribuído")
+        st.markdown("**📍 Cidade**")
+        st.write(chamado.get("cidade") or "-")
+
+    st.divider()
 
     st.subheader("⏱️ Tempos de Atendimento do Chamado")
     if chamado.get("sla_valido"):
@@ -1077,6 +1627,9 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
         atividade = str(chamado.get("atividade_realizada", "")).strip()
         st.success(atividade if atividade and atividade.casefold() != "nan" else "Ainda não há atividades registradas para este chamado.")
 
+    # Ferramentas extras visíveis somente no modo administrativo.
+    render_ferramentas_admin_ticket(chamado)
+
     nota = chamado.get("nota_atendimento", "")
     data_aval = str(chamado.get("data_avaliacao", "")).strip()
     coment_aval = str(chamado.get("comentario_avaliacao", "")).strip()
@@ -1095,37 +1648,7 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
             if coment_aval and coment_aval.casefold() != "nan":
                 st.markdown("💬 **Comentário do Solicitante:**")
                 st.write(f'"{coment_aval}"')
-                
-    st.divider()
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown("**Status Atual**")
-        st.markdown(get_status_badge(chamado["status"]), unsafe_allow_html=True)
-        st.write("")
-        st.markdown("**👤 Solicitante**")
-        st.write(chamado.get("solicitante") or "-")
-
-    with col2:
-        st.markdown("**⚠️ Prioridade**")
-        st.write(chamado.get("prioridade") or "-")
-        st.markdown("**🏢 Departamento**")
-        st.write(chamado.get("departamento") or "-")
-
-    with col3:
-        st.markdown("**👨‍💻 Técnico Responsável**")
-        st.write(chamado.get("tecnico") or "Ainda não atribuído")
-        st.markdown("**📍 Cidade**")
-        st.write(chamado.get("cidade") or "-")
-
-    st.divider()
-
-    render_acompanhamento_citel(chamado)
-
     st.stop()
-
-
 
 # ============================================================
 # TELA DE BUSCA DE CHAMADOS
@@ -1243,11 +1766,12 @@ if st.session_state.tela == "dashboard":
         )
         return fig
 
-    tab_op, tab_sla, tab_csat, tab_reviews = st.tabs([
+    tab_op, tab_sla, tab_csat, tab_reviews, tab_gestao = st.tabs([
         "📊 Operação & Volumetria", 
         "⏱️ SLAs & Médias de Tempo",
         "⭐ Satisfação & Notas (CSAT)", 
-        "💬 Feed de Reviews & Feedback"
+        "💬 Feed de Reviews & Feedback",
+        "🧠 Gestão TI"
     ])
 
     # ============================================================
@@ -1670,3 +2194,330 @@ if st.session_state.tela == "dashboard":
                         st.write("")
                         st.caption(f"📅 {data_aval_str}")
                         st.button("👁️ Ver Ticket", key=f"btn_feed_{t_id}_{idx}", on_click=abrir_ticket, args=(t_id,), use_container_width=True)
+
+    # ============================================================
+    # TAB 5: GESTÃO TI - ADMINISTRATIVO
+    # ============================================================
+    with tab_gestao:
+        st.subheader("🧠 Gestão TI — visão administrativa")
+        st.caption("Tendências, recorrências, terceiros e auditoria. Esta área só existe no modo Admin.")
+
+        sub_tend, sub_rec, sub_terc, sub_aud = st.tabs([
+            "📈 Tendências & Demanda",
+            "♻️ Recorrências",
+            "🌐 Central de Terceiros",
+            "🛡️ Auditoria",
+        ])
+
+        # --------------------------------------------------------
+        # TENDÊNCIAS & DEMANDA
+        # --------------------------------------------------------
+        with sub_tend:
+            st.markdown("### 📈 Evolução de chamados ao longo do tempo")
+            df_datas = df[df["dt_abertura"].notna()].copy()
+            if df_datas.empty:
+                st.info("Não há datas de abertura suficientes para montar a evolução.")
+            else:
+                granularidade = st.radio(
+                    "Agrupamento",
+                    ["Mensal", "Semanal"],
+                    horizontal=True,
+                    key="gestao_granularidade",
+                )
+
+                if granularidade == "Semanal":
+                    abertos = df_datas.set_index("dt_abertura").resample("W-MON")["id_chamado"].count().rename("Abertos")
+                    concl_base = df[df["dt_conclusao_efetiva"].notna()].copy()
+                    concluidos = concl_base.set_index("dt_conclusao_efetiva").resample("W-MON")["id_chamado"].count().rename("Concluídos")
+                else:
+                    abertos = df_datas.assign(periodo=df_datas["dt_abertura"].dt.to_period("M")).groupby("periodo")["id_chamado"].count().rename("Abertos")
+                    concl_base = df[df["dt_conclusao_efetiva"].notna()].copy()
+                    concluidos = concl_base.assign(periodo=concl_base["dt_conclusao_efetiva"].dt.to_period("M")).groupby("periodo")["id_chamado"].count().rename("Concluídos")
+
+                evol = pd.concat([abertos, concluidos], axis=1).fillna(0).sort_index()
+                if granularidade == "Mensal":
+                    evol.index = evol.index.astype(str)
+                else:
+                    evol.index = pd.to_datetime(evol.index).strftime("%d/%m/%Y")
+                evol_reset = evol.reset_index().rename(columns={evol.index.name or "index": "Período"})
+                if "Período" not in evol_reset.columns:
+                    evol_reset = evol_reset.rename(columns={evol_reset.columns[0]: "Período"})
+                evol_long = evol_reset.melt(id_vars="Período", value_vars=["Abertos", "Concluídos"], var_name="Tipo", value_name="Quantidade")
+                fig_evol = px.line(evol_long, x="Período", y="Quantidade", color="Tipo", markers=True)
+                fig_evol = aplicar_layout_plotly(fig_evol)
+                st.plotly_chart(fig_evol, use_container_width=True)
+
+            st.divider()
+            st.markdown("### 📅 Comparação mês contra mês")
+            periodos = sorted(df["dt_abertura"].dropna().dt.to_period("M").unique(), reverse=True)
+            if not periodos:
+                st.info("Não há meses suficientes para comparação.")
+            else:
+                labels_periodo = {p: f"{MESES_DIC.get(p.month, p.month)}/{p.year}" for p in periodos}
+                periodo_sel = st.selectbox(
+                    "Mês de referência",
+                    options=periodos,
+                    format_func=lambda p: labels_periodo[p],
+                    key="gestao_mes_comparacao",
+                )
+                periodo_ant = periodo_sel - 1
+                met_atual = metricas_mes(df, periodo_sel)
+                met_ant = metricas_mes(df, periodo_ant)
+
+                mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+                with mc1:
+                    st.metric("Chamados abertos", met_atual["abertos"], delta=met_atual["abertos"] - met_ant["abertos"])
+                with mc2:
+                    st.metric("Concluídos no mês", met_atual["concluidos"], delta=met_atual["concluidos"] - met_ant["concluidos"])
+                with mc3:
+                    st.metric("Backlog no fim do mês", met_atual["backlog"], delta=met_atual["backlog"] - met_ant["backlog"], delta_color="inverse")
+                with mc4:
+                    sla_atual = formatar_tempo(met_atual["sla_medio"]) if met_atual["sla_medio"] is not None and pd.notna(met_atual["sla_medio"]) else "N/A"
+                    sla_ant = met_ant["sla_medio"]
+                    delta_sla = None
+                    if met_atual["sla_medio"] is not None and sla_ant is not None and pd.notna(met_atual["sla_medio"]) and pd.notna(sla_ant):
+                        delta_sla = formatar_tempo(abs(met_atual["sla_medio"] - sla_ant))
+                        if met_atual["sla_medio"] > sla_ant:
+                            delta_sla = "+" + delta_sla
+                        elif met_atual["sla_medio"] < sla_ant:
+                            delta_sla = "-" + delta_sla
+                    st.metric("Tempo médio total", sla_atual, delta=delta_sla, delta_color="inverse")
+                with mc5:
+                    csat_atual = f"{met_atual['csat']:.2f}/5" if met_atual["csat"] is not None and pd.notna(met_atual["csat"]) else "N/A"
+                    delta_csat = None
+                    if met_atual["csat"] is not None and met_ant["csat"] is not None and pd.notna(met_atual["csat"]) and pd.notna(met_ant["csat"]):
+                        delta_csat = f"{met_atual['csat'] - met_ant['csat']:+.2f}"
+                    st.metric("CSAT", csat_atual, delta=delta_csat)
+                st.caption(
+                    f"Comparando {labels_periodo[periodo_sel]} com {MESES_DIC.get(periodo_ant.month, periodo_ant.month)}/{periodo_ant.year}. "
+                    f"Avaliações no mês atual: {met_atual['avaliacoes']}."
+                )
+
+            st.divider()
+            st.markdown("### 🕐 Horários de maior demanda")
+            df_hora = df[df["dt_abertura"].notna()].copy()
+            if df_hora.empty:
+                st.info("Não há datas/horários suficientes para montar o mapa de calor.")
+            else:
+                df_hora["dia_num"] = df_hora["dt_abertura"].dt.dayofweek
+                df_hora["Dia"] = df_hora["dia_num"].map(DIAS_SEMANA)
+                df_hora["Hora"] = df_hora["dt_abertura"].dt.hour
+                pivot = df_hora.pivot_table(index="Dia", columns="Hora", values="id_chamado", aggfunc="count", fill_value=0)
+                ordem_dias = [DIAS_SEMANA[i] for i in range(7)]
+                pivot = pivot.reindex(ordem_dias, fill_value=0).reindex(columns=list(range(24)), fill_value=0)
+                fig_heat = go.Figure(data=go.Heatmap(
+                    z=pivot.values,
+                    x=[f"{h:02d}h" for h in pivot.columns],
+                    y=pivot.index.tolist(),
+                    hovertemplate="%{y} às %{x}: %{z} chamado(s)<extra></extra>",
+                ))
+                fig_heat.update_layout(
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#f8fafc"),
+                    margin=dict(t=20, b=20, l=20, r=20),
+                    xaxis_title="Hora de abertura",
+                    yaxis_title="Dia da semana",
+                )
+                st.plotly_chart(fig_heat, use_container_width=True)
+
+        # --------------------------------------------------------
+        # RECORRÊNCIAS
+        # --------------------------------------------------------
+        with sub_rec:
+            st.markdown("### ♻️ Problemas recorrentes")
+            col_rec1, col_rec2 = st.columns([2, 2])
+            with col_rec1:
+                minimo_rec = st.selectbox("Mínimo de ocorrências", [2, 3, 4, 5], index=1, key="min_recorrencia")
+            with col_rec2:
+                periodo_rec = st.selectbox("Período analisado", ["Todo histórico", "Últimos 90 dias", "Últimos 30 dias"], key="periodo_recorrencia")
+
+            df_rec = df.copy()
+            agora_rec = pd.Timestamp.now()
+            if periodo_rec == "Últimos 90 dias":
+                df_rec = df_rec[df_rec["dt_abertura"].notna() & (df_rec["dt_abertura"] >= agora_rec - pd.Timedelta(days=90))]
+            elif periodo_rec == "Últimos 30 dias":
+                df_rec = df_rec[df_rec["dt_abertura"].notna() & (df_rec["dt_abertura"] >= agora_rec - pd.Timedelta(days=30))]
+
+            recorrentes = obter_problemas_recorrentes(df_rec, minimo=minimo_rec, limite=20)
+            if recorrentes.empty:
+                st.info("Nenhum agrupamento recorrente relevante apareceu com os critérios atuais.")
+            else:
+                st.dataframe(
+                    recorrentes[["Quantidade", "Exemplo", "Departamentos", "Tickets"]],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                st.caption("Agrupamento heurístico por termos relevantes do título/descrição; serve para encontrar padrões, não como classificação definitiva.")
+
+            st.divider()
+            st.markdown("### 🚨 Possível problema recorrente — detecção automática")
+            c_auto1, c_auto2 = st.columns(2)
+            with c_auto1:
+                janela_auto = st.selectbox("Janela recente", [2, 3, 7, 14, 30], index=2, format_func=lambda x: f"Últimos {x} dias", key="janela_auto")
+            with c_auto2:
+                minimo_auto = st.selectbox("Chamados parecidos para alertar", [3, 4, 5], index=0, key="minimo_auto")
+
+            alertas = detectar_possiveis_recorrencias(df, dias=janela_auto, minimo=minimo_auto)
+            if not alertas:
+                st.success("Nenhum agrupamento recente forte o bastante para gerar alerta automático.")
+            else:
+                st.warning(f"Foram encontrados {len(alertas)} possível(is) grupo(s) de chamados semelhantes na janela selecionada.")
+                for i, grupo in enumerate(alertas, start=1):
+                    titulos = [g["titulo"] for g in grupo]
+                    departamentos = sorted({g["departamento"] for g in grupo if g["departamento"]})
+                    tickets = [g["ticket"] for g in grupo if g["ticket"]]
+                    with st.container(border=True):
+                        st.markdown(f"**🚨 Grupo {i}: {len(grupo)} chamados possivelmente relacionados**")
+                        st.write(titulos[0][:180])
+                        st.caption(
+                            f"Tickets: {', '.join(tickets[:12]) or '-'} | Departamentos: {', '.join(departamentos[:6]) or '-'}"
+                        )
+
+        # --------------------------------------------------------
+        # CENTRAL DE TERCEIROS
+        # --------------------------------------------------------
+        with sub_terc:
+            st.markdown("### 🌐 Central de Terceiros")
+            base_terc = montar_base_terceiros_admin()
+            if base_terc.empty:
+                st.info("Nenhum vínculo com terceiros foi encontrado.")
+            else:
+                ativos_terc = base_terc[base_terc["grupo_status"] != "Concluídos"].copy()
+                roadmap_mask = base_terc["roadmap"].astype(str).str.casefold().isin({"sim", "true", "1", "yes", "x"})
+                t1, t2, t3, t4 = st.columns(4)
+                with t1:
+                    st.metric("Vínculos com terceiros", len(base_terc))
+                with t2:
+                    st.metric("Chamados ainda ativos", len(ativos_terc))
+                with t3:
+                    st.metric("Empresas terceiras", base_terc["nome_terceiro"].nunique())
+                with t4:
+                    st.metric("Roadmaps marcados", int(roadmap_mask.sum()))
+
+                terc_counts = base_terc["nome_terceiro"].replace("", "Não informado").value_counts().reset_index()
+                terc_counts.columns = ["Terceiro", "Quantidade"]
+                fig_terc = px.bar(terc_counts, x="Quantidade", y="Terceiro", orientation="h")
+                fig_terc = aplicar_layout_plotly(fig_terc)
+                st.plotly_chart(fig_terc, use_container_width=True)
+
+                st.markdown("#### Situação dos chamados vinculados")
+                tabela_terc = base_terc[[
+                    "ticket_ferpam", "status_ferpam", "nome_terceiro", "id_ticket", "tecnico", "departamento"
+                ]].copy()
+                tabela_terc.columns = ["Ticket Ferpam", "Status Ferpam", "Terceiro", "Ticket Terceiro", "Técnico", "Departamento"]
+                st.dataframe(tabela_terc, use_container_width=True, hide_index=True)
+
+                st.divider()
+                st.markdown("#### 🔄 Situação ao vivo da Citel")
+                st.caption("A consulta ao portal da Citel só acontece quando você aperta o botão abaixo, evitando dezenas de requisições a cada atualização do dashboard.")
+
+                citel_ativos = ativos_terc[
+                    ativos_terc["nome_terceiro"].str.contains("citel", case=False, na=False)
+                    | ativos_terc["link"].str.contains("citelsoftware", case=False, na=False)
+                ].copy()
+
+                col_live1, col_live2 = st.columns([3, 7])
+                with col_live1:
+                    atualizar_live = st.button("🔄 Consultar Citel agora", type="primary", use_container_width=True, key="btn_central_citel")
+                with col_live2:
+                    st.caption(f"{len(citel_ativos)} chamado(s) ativo(s) da Citel encontrado(s).")
+
+                if atualizar_live:
+                    registrar_auditoria_seguro(
+                        "ATUALIZAR_CENTRAL_TERCEIROS",
+                        detalhes=f"Consulta ao vivo de {len(citel_ativos)} vínculos ativos da Citel.",
+                    )
+                    resultados_live = []
+                    limite_live = 60
+                    for _, item in citel_ativos.head(limite_live).iterrows():
+                        ticket_citel = extrair_id_ticket_citel(item.get("link", ""), item.get("id_ticket", ""))
+                        situacao = consultar_vez_resposta_citel(ticket_citel)
+                        resultados_live.append({
+                            "Ticket Ferpam": item.get("ticket_ferpam", ""),
+                            "Ticket Citel": ticket_citel or "-",
+                            "Título": item.get("titulo", ""),
+                            "Técnico": item.get("tecnico", ""),
+                            "Estado": situacao.get("titulo") if situacao.get("ok") else "Não foi possível consultar",
+                            "estado_codigo": situacao.get("estado", "indisponivel"),
+                            "Última interação": formatar_data_citel(situacao.get("ultima_data")) or "-",
+                        })
+                    st.session_state.central_terceiros_live = resultados_live
+                    if len(citel_ativos) > limite_live:
+                        st.warning(f"Por segurança, a atualização ao vivo foi limitada aos primeiros {limite_live} chamados ativos.")
+
+                live = st.session_state.get("central_terceiros_live", [])
+                if live:
+                    live_df = pd.DataFrame(live)
+                    aguardando_ti = live_df[live_df["estado_codigo"] == "aguardando_ti"]
+                    lc1, lc2, lc3 = st.columns(3)
+                    with lc1:
+                        st.metric("Citel respondeu / aguardando TI", len(aguardando_ti))
+                    with lc2:
+                        st.metric("Aguardando Citel", int((live_df["estado_codigo"] == "aguardando_citel").sum()))
+                    with lc3:
+                        st.metric("Consulta indisponível", int((~live_df["estado_codigo"].isin(["aguardando_ti", "aguardando_citel"])).sum()))
+
+                    st.dataframe(
+                        live_df.drop(columns=["estado_codigo"]),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                    if not aguardando_ti.empty:
+                        st.markdown("##### 🔵 Citel respondeu — chamados que precisam da TI")
+                        for idx_live, item_live in aguardando_ti.iterrows():
+                            with st.container(border=True):
+                                c_l1, c_l2 = st.columns([8, 2])
+                                with c_l1:
+                                    st.markdown(f"**🎫 Ferpam #{item_live['Ticket Ferpam']} | Citel #{item_live['Ticket Citel']}**")
+                                    st.write(item_live.get("Título") or "Sem título")
+                                    st.caption(f"Técnico: {item_live.get('Técnico') or 'Não atribuído'} • Última interação: {item_live.get('Última interação')}")
+                                with c_l2:
+                                    if item_live["Ticket Ferpam"]:
+                                        st.button(
+                                            "👁️ Abrir",
+                                            key=f"btn_live_abrir_{idx_live}_{item_live['Ticket Ferpam']}",
+                                            on_click=abrir_ticket,
+                                            args=(item_live["Ticket Ferpam"],),
+                                            use_container_width=True,
+                                        )
+
+        # --------------------------------------------------------
+        # AUDITORIA
+        # --------------------------------------------------------
+        with sub_aud:
+            st.markdown("### 🛡️ Auditoria administrativa")
+            st.caption("Registra ações administrativas relevantes sem gravar senhas, tokens ou conteúdo das mensagens da Citel.")
+
+            if carregar_auditoria is None:
+                st.warning("A auditoria persistente precisa da versão atualizada de services/sheets.py que acompanha este pacote.")
+            else:
+                col_aud1, col_aud2 = st.columns([2, 8])
+                with col_aud1:
+                    if st.button("🔄 Atualizar auditoria", use_container_width=True, key="btn_refresh_aud"):
+                        try:
+                            carregar_auditoria.clear()
+                        except Exception:
+                            pass
+                try:
+                    df_aud = carregar_auditoria()
+                except Exception as e:
+                    df_aud = pd.DataFrame()
+                    st.error(f"Não foi possível carregar a auditoria: {e}")
+
+                if df_aud.empty:
+                    st.info("Ainda não existem registros de auditoria. A aba será criada automaticamente no primeiro evento administrativo.")
+                else:
+                    df_aud.columns = [str(c).strip() for c in df_aud.columns]
+                    eventos_disp = sorted([str(v) for v in df_aud.get("evento", pd.Series(dtype=str)).dropna().unique()])
+                    filtro_evento = st.selectbox("Filtrar por evento", ["Todos"] + eventos_disp, key="aud_evento")
+                    df_aud_view = df_aud.copy()
+                    if filtro_evento != "Todos" and "evento" in df_aud_view.columns:
+                        df_aud_view = df_aud_view[df_aud_view["evento"].astype(str) == filtro_evento]
+                    if "timestamp" in df_aud_view.columns:
+                        dt_aud = pd.to_datetime(df_aud_view["timestamp"], errors="coerce")
+                        df_aud_view = df_aud_view.assign(_dt=dt_aud).sort_values("_dt", ascending=False).drop(columns=["_dt"])
+                    colunas_visiveis = [c for c in ["timestamp", "usuario_admin", "evento", "ticket", "detalhes"] if c in df_aud_view.columns]
+                    st.dataframe(df_aud_view[colunas_visiveis].head(500), use_container_width=True, hide_index=True)
+                    st.caption("Mostrando no máximo os 500 registros mais recentes do filtro atual.")
