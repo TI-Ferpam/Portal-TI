@@ -1053,32 +1053,6 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
     if chamado.get("eh_roadmap"):
         st.warning("🚀 **Este chamado é considerado ROADMAP (Tempo total superior a 6 dias).**")
 
-    # Se este chamado estiver vinculado à Citel, mostra apenas de quem é a vez
-    # de responder no chamado externo.
-    render_acompanhamento_citel(chamado)
-
-    st.divider()
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown("**Status Atual**")
-        st.markdown(get_status_badge(chamado["status"]), unsafe_allow_html=True)
-        st.write("")
-        st.markdown("**👤 Solicitante**")
-        st.write(chamado.get("solicitante") or "-")
-    with col2:
-        st.markdown("**⚠️ Prioridade**")
-        st.write(chamado.get("prioridade") or "-")
-        st.markdown("**🏢 Departamento**")
-        st.write(chamado.get("departamento") or "-")
-    with col3:
-        st.markdown("**👨‍💻 Técnico Responsável**")
-        st.write(chamado.get("tecnico") or "Ainda não atribuído")
-        st.markdown("**📍 Cidade**")
-        st.write(chamado.get("cidade") or "-")
-
-    st.divider()
-
     st.subheader("⏱️ Tempos de Atendimento do Chamado")
     if chamado.get("sla_valido"):
         t1, t2, t3 = st.columns(3)
@@ -1122,6 +1096,33 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
                 st.markdown("💬 **Comentário do Solicitante:**")
                 st.write(f'"{coment_aval}"')
     st.stop()
+
+
+    # Se este chamado estiver vinculado à Citel, mostra apenas de quem é a vez
+    # de responder no chamado externo.
+    render_acompanhamento_citel(chamado)
+
+    st.divider()
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("**Status Atual**")
+        st.markdown(get_status_badge(chamado["status"]), unsafe_allow_html=True)
+        st.write("")
+        st.markdown("**👤 Solicitante**")
+        st.write(chamado.get("solicitante") or "-")
+    with col2:
+        st.markdown("**⚠️ Prioridade**")
+        st.write(chamado.get("prioridade") or "-")
+        st.markdown("**🏢 Departamento**")
+        st.write(chamado.get("departamento") or "-")
+    with col3:
+        st.markdown("**👨‍💻 Técnico Responsável**")
+        st.write(chamado.get("tecnico") or "Ainda não atribuído")
+        st.markdown("**📍 Cidade**")
+        st.write(chamado.get("cidade") or "-")
+
+    st.divider()
 
 # ============================================================
 # TELA DE BUSCA DE CHAMADOS
