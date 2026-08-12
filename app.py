@@ -1096,20 +1096,23 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
                 st.markdown("💬 **Comentário do Solicitante:**")
                 st.write(f'"{coment_aval}"')
                 
-            st.divider()
+                  st.divider()
 
-       col1, col2, col3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
+
     with col1:
         st.markdown("**Status Atual**")
         st.markdown(get_status_badge(chamado["status"]), unsafe_allow_html=True)
         st.write("")
         st.markdown("**👤 Solicitante**")
         st.write(chamado.get("solicitante") or "-")
+
     with col2:
         st.markdown("**⚠️ Prioridade**")
         st.write(chamado.get("prioridade") or "-")
         st.markdown("**🏢 Departamento**")
         st.write(chamado.get("departamento") or "-")
+
     with col3:
         st.markdown("**👨‍💻 Técnico Responsável**")
         st.write(chamado.get("tecnico") or "Ainda não atribuído")
