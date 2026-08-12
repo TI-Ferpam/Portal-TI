@@ -1,5 +1,6 @@
 import os
 import re
+import html
 
 import pandas as pd
 import plotly.express as px
@@ -521,14 +522,16 @@ def localizar_terceiros_do_chamado(chamado):
 
 def _auth_citel():
     """
-    Formas aceitas:
+    Formas aceitas, em ordem de preferência:
       1) CITEL_OAUTH_TOKEN
-      2) CITEL_EMAIL + CITEL_PASSWORD (conta de usuário final do portal)
+      2) CITEL_EMAIL + CITEL_API_TOKEN
+      3) CITEL_EMAIL + CITEL_PASSWORD (conta de usuário final do portal)
 
     Para conta de usuário final, o acesso por senha depende de a instância
     Zendesk da Citel permitir autenticação de API por senha.
     """
     oauth_token = obter_config_secreta("CITEL_OAUTH_TOKEN")
+    api_token = obter_config_secreta("CITEL_API_TOKEN")
     email = obter_config_secreta("CITEL_EMAIL")
     senha = obter_config_secreta("CITEL_PASSWORD")
 
@@ -541,12 +544,18 @@ def _auth_citel():
         headers["Authorization"] = f"Bearer {oauth_token}"
         return headers, None, None
 
+    # Suporte opcional a API token. OAuth continua sendo a primeira opção.
+    if email and api_token:
+        return headers, (f"{email}/token", api_token), None
+
+    # Compatibilidade com a conta de usuário final que já está funcionando
+    # no portal da Ferpam. A instância da Citel precisa permitir acesso por senha.
     if email and senha:
         return headers, (email, senha), None
 
     return headers, None, (
-        "Integração Citel não configurada. Defina CITEL_EMAIL e "
-        "CITEL_PASSWORD (ou CITEL_OAUTH_TOKEN) nos secrets do Streamlit."
+        "Integração Citel não configurada. Defina CITEL_OAUTH_TOKEN ou "
+        "CITEL_EMAIL + CITEL_API_TOKEN/CITEL_PASSWORD nos secrets do Streamlit."
     )
 
 
@@ -662,9 +671,294 @@ def formatar_data_citel(valor):
     if pd.isna(dt):
         return None
 
-    # Tocantins / Brasília: UTC-3. Evita depender de biblioteca extra.
+    # Tocantins / Brasília: UTC-3.
     dt_local = dt.tz_convert("America/Araguaina")
     return dt_local.strftime("%d/%m/%Y às %H:%M")
+
+
+def _validar_resposta_citel(resposta):
+    """Converte respostas HTTP da Citel em erros controlados e sem vazar credenciais."""
+    if resposta.status_code == 401:
+        raise RuntimeError("Credenciais da Citel recusadas pela API.")
+    if resposta.status_code == 403:
+        raise RuntimeError("A conta configurada não possui acesso a este chamado da Citel.")
+    if resposta.status_code == 404:
+        raise RuntimeError("Chamado não encontrado no portal da Citel.")
+    if resposta.status_code == 429:
+        raise RuntimeError("A Citel limitou temporariamente as consultas automáticas.")
+    if not resposta.ok:
+        raise RuntimeError(f"API da Citel respondeu HTTP {resposta.status_code}.")
+
+
+def _listar_comentarios_citel_por_papel(ticket_id, role, headers, auth):
+    """
+    Lista comentários públicos do request para um único papel.
+
+    role='agent'    -> comentários da Citel
+    role='end_user' -> comentários da Ferpam/TI (requester/collaborators)
+
+    O endpoint /requests é a visão do usuário final no Zendesk e, portanto,
+    não expõe notas privadas de agentes.
+    """
+    url = f"{CITEL_API_BASE}/requests/{ticket_id}/comments"
+    comentarios_encontrados = []
+
+    # Limite defensivo: evita um ticket anormal gerar dezenas de requisições.
+    # 20 páginas x 100 comentários por papel = até 4.000 mensagens combinadas.
+    max_paginas = 20
+    por_pagina = 100
+    truncado = False
+
+    for pagina in range(1, max_paginas + 1):
+        params = {
+            "role": role,
+            "sort_by": "created_at",
+            "sort_order": "asc",
+            "per_page": por_pagina,
+            "page": pagina,
+        }
+
+        resposta = requests.get(
+            url,
+            headers=headers,
+            auth=auth,
+            params=params,
+            timeout=10,
+        )
+        _validar_resposta_citel(resposta)
+
+        dados = resposta.json()
+        pagina_comentarios = dados.get("comments", [])
+        if not isinstance(pagina_comentarios, list):
+            pagina_comentarios = []
+
+        for comentario in pagina_comentarios:
+            if not isinstance(comentario, dict):
+                continue
+
+            # Copiamos somente os campos necessários para o modal.
+            # Não armazenamos credenciais, headers, cookies ou HTML do Zendesk.
+            comentarios_encontrados.append({
+                "id": comentario.get("id"),
+                "created_at": comentario.get("created_at"),
+                "plain_body": comentario.get("plain_body") or comentario.get("body") or "",
+                "attachments": comentario.get("attachments") or [],
+                "papel": role,
+            })
+
+        if len(pagina_comentarios) < por_pagina:
+            break
+
+        if pagina == max_paginas:
+            truncado = True
+
+    return comentarios_encontrados, truncado
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def consultar_historico_citel(ticket_id):
+    """
+    Busca o histórico público do chamado da Citel para exibição somente leitura.
+
+    Segurança:
+    - usa credenciais exclusivamente no servidor;
+    - não devolve senha/token para a interface;
+    - usa a Requests API, que representa a visão de usuário final e não inclui
+      notas privadas de agentes;
+    - mantém em memória/cache apenas conteúdo necessário para exibição.
+    """
+    ticket_id = str(ticket_id or "").strip()
+    if not ticket_id or not ticket_id.isdigit():
+        return {
+            "ok": False,
+            "erro": "ID do chamado da Citel inválido.",
+            "mensagens": [],
+        }
+
+    headers, auth, erro_config = _auth_citel()
+    if erro_config:
+        return {
+            "ok": False,
+            "erro": erro_config,
+            "mensagens": [],
+        }
+
+    try:
+        mensagens_citel, truncado_citel = _listar_comentarios_citel_por_papel(
+            ticket_id,
+            "agent",
+            headers,
+            auth,
+        )
+        mensagens_ferpam, truncado_ferpam = _listar_comentarios_citel_por_papel(
+            ticket_id,
+            "end_user",
+            headers,
+            auth,
+        )
+
+        mensagens = mensagens_citel + mensagens_ferpam
+
+        # Remove possíveis duplicidades pelo ID do comentário sem alterar a ordem.
+        unicos = {}
+        sem_id = []
+        for mensagem in mensagens:
+            msg_id = mensagem.get("id")
+            if msg_id is None:
+                sem_id.append(mensagem)
+            else:
+                unicos[str(msg_id)] = mensagem
+
+        mensagens = list(unicos.values()) + sem_id
+
+        # Conversa na ordem cronológica. Datas inválidas ficam no fim.
+        def chave_data(item):
+            dt = pd.to_datetime(item.get("created_at"), errors="coerce", utc=True)
+            if pd.isna(dt):
+                return pd.Timestamp.max.tz_localize("UTC")
+            return dt
+
+        mensagens.sort(key=chave_data)
+
+        return {
+            "ok": True,
+            "mensagens": mensagens,
+            "truncado": bool(truncado_citel or truncado_ferpam),
+        }
+
+    except requests.RequestException:
+        return {
+            "ok": False,
+            "erro": "Não foi possível conectar ao portal da Citel.",
+            "mensagens": [],
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "erro": str(e),
+            "mensagens": [],
+        }
+
+
+def _texto_comentario_seguro(valor):
+    """Normaliza o texto sem interpretar HTML enviado pelo sistema externo."""
+    texto = str(valor or "").replace("\x00", "").strip()
+
+    # Proteção de interface contra um comentário excepcionalmente gigantesco.
+    limite = 30000
+    if len(texto) > limite:
+        texto = texto[:limite] + "\n\n[Mensagem muito longa; exibindo somente os primeiros 30.000 caracteres.]"
+
+    return texto
+
+
+def _renderizar_texto_comentario_seguro(texto):
+    """Renderiza texto externo com escape HTML e quebra de linha visual."""
+    texto_escapado = html.escape(str(texto or ""), quote=True).replace("\n", "<br>")
+    st.markdown(
+        f"<div style='white-space:normal; overflow-wrap:anywhere; line-height:1.55;'>{texto_escapado}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _nomes_anexos_seguros(anexos):
+    """
+    Retorna apenas os nomes dos anexos.
+    Não disponibilizamos content_url no portal para não repassar URLs/tokens
+    de download do sistema externo aos usuários do dashboard.
+    """
+    nomes = []
+    if not isinstance(anexos, list):
+        return nomes
+
+    for anexo in anexos[:20]:
+        if not isinstance(anexo, dict):
+            continue
+        nome = str(anexo.get("file_name") or anexo.get("name") or "Anexo").strip()
+        if nome:
+            nomes.append(nome[:180])
+
+    return nomes
+
+
+def _conteudo_modal_historico_citel(ticket_id, link=""):
+    st.caption(
+        "Somente as mensagens públicas visíveis para a conta da Ferpam no portal da Citel são exibidas aqui."
+    )
+
+    with st.spinner("Buscando histórico no portal da Citel..."):
+        historico = consultar_historico_citel(ticket_id)
+
+    if not historico.get("ok"):
+        st.error("Não foi possível carregar o histórico da Citel agora.")
+        if st.session_state.get("autenticado_admin"):
+            st.caption(f"Admin: {historico.get('erro', 'Erro não identificado')}")
+        return
+
+    mensagens = historico.get("mensagens", [])
+
+    if not mensagens:
+        st.info("Nenhuma mensagem pública foi encontrada neste chamado da Citel.")
+    else:
+        st.caption(f"{len(mensagens)} mensagem(ns) encontrada(s).")
+
+        if historico.get("truncado"):
+            st.warning(
+                "Este chamado possui um histórico muito grande. Por segurança, "
+                "o portal limitou a quantidade consultada nesta visualização."
+            )
+
+        for indice, mensagem in enumerate(mensagens):
+            papel = mensagem.get("papel")
+            eh_citel = papel == "agent"
+            autor = "Citel" if eh_citel else "TI / Ferpam"
+            icone = "🔵" if eh_citel else "🟢"
+            data_str = formatar_data_citel(mensagem.get("created_at")) or "Data não informada"
+            texto = _texto_comentario_seguro(mensagem.get("plain_body"))
+            anexos = _nomes_anexos_seguros(mensagem.get("attachments"))
+
+            with st.container(border=True):
+                col_autor, col_data = st.columns([6, 4])
+                with col_autor:
+                    st.markdown(f"**{icone} {autor}**")
+                with col_data:
+                    st.caption(data_str)
+
+                # O texto externo é escapado antes de qualquer renderização HTML,
+                # então tags e scripts vindos do sistema externo permanecem texto.
+                if texto:
+                    _renderizar_texto_comentario_seguro(texto)
+                else:
+                    st.caption("Mensagem sem conteúdo textual.")
+
+                if anexos:
+                    st.caption("📎 Anexo(s): " + " • ".join(anexos))
+
+    st.divider()
+    col_info, col_acao = st.columns([7, 3])
+    with col_info:
+        st.caption(f"Chamado externo Citel #{ticket_id} • visualização somente leitura")
+    with col_acao:
+        if link:
+            st.link_button(
+                "🔗 Abrir na Citel",
+                link,
+                use_container_width=True,
+            )
+
+
+# Modal nativo do Streamlit. O fallback impede o app inteiro de quebrar caso
+# uma instalação antiga do Streamlit seja usada por engano.
+if hasattr(st, "dialog"):
+    @st.dialog("💬 Histórico do chamado com a Citel", width="large")
+    def abrir_historico_citel_dialog(ticket_id, link=""):
+        _conteudo_modal_historico_citel(ticket_id, link)
+else:
+    def abrir_historico_citel_dialog(ticket_id, link=""):
+        st.error(
+            "A versão instalada do Streamlit não possui suporte a janela modal (st.dialog). "
+            "Atualize o Streamlit para usar o histórico em janela."
+        )
 
 
 def render_acompanhamento_citel(chamado):
@@ -692,7 +986,7 @@ def render_acompanhamento_citel(chamado):
         ticket_citel = extrair_id_ticket_citel(link, item.get("id_ticket", ""))
 
         with st.container(border=True):
-            col_estado, col_link = st.columns([7, 3])
+            col_estado, col_acoes = st.columns([7, 3])
 
             with col_estado:
                 if ticket_citel:
@@ -717,8 +1011,18 @@ def render_acompanhamento_citel(chamado):
                 if data_str:
                     st.caption(f"Última interação considerada: {data_str}")
 
-            with col_link:
+            with col_acoes:
                 st.write("")
+
+                if ticket_citel:
+                    if st.button(
+                        "💬 Ver histórico",
+                        key=f"btn_hist_citel_{ticket_citel}_{idx_citel}",
+                        use_container_width=True,
+                        help="Abre somente as mensagens públicas do chamado da Citel.",
+                    ):
+                        abrir_historico_citel_dialog(ticket_citel, link)
+
                 if link:
                     st.link_button(
                         "🔗 Abrir na Citel",
