@@ -1097,14 +1097,7 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
                 st.write(f'"{coment_aval}"')
                 st.divider()
 
-    
-    # Se este chamado estiver vinculado à Citel, mostra apenas de quem é a vez
-    # de responder no chamado externo.
-    render_acompanhamento_citel(chamado)
-
-    st.divider()
-
-    col1, col2, col3 = st.columns(3)
+       col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown("**Status Atual**")
         st.markdown(get_status_badge(chamado["status"]), unsafe_allow_html=True)
@@ -1122,6 +1115,9 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
         st.markdown("**📍 Cidade**")
         st.write(chamado.get("cidade") or "-")
 
+    st.divider()
+
+    render_acompanhamento_citel(chamado)
 
     st.stop()
 
