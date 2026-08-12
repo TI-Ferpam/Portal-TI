@@ -1096,7 +1096,7 @@ if st.session_state.tela == "ticket" and st.session_state.ticket_aberto is not N
                 st.markdown("💬 **Comentário do Solicitante:**")
                 st.write(f'"{coment_aval}"')
                 
-                  st.divider()
+    st.divider()
 
     col1, col2, col3 = st.columns(3)
 
