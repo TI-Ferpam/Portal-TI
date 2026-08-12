@@ -402,6 +402,253 @@ st.markdown(f"""
         color: #ffffff !important;
         border-radius: 6px !important;
     }}
+
+
+    /* ============================================================
+       PAINEL ADMINISTRATIVO DO TICKET
+       ============================================================ */
+    .admin-summary-head {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+    }}
+
+    .admin-summary-kicker {{
+        color: #94a3b8;
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .08em;
+    }}
+
+    .admin-summary-title {{
+        color: #f8fafc;
+        font-size: 1.08rem;
+        font-weight: 800;
+        margin-top: 2px;
+    }}
+
+    .admin-summary-ticket {{
+        color: #93c5fd;
+        background: rgba(37, 99, 235, .10);
+        border: 1px solid rgba(59, 130, 246, .22);
+        padding: 5px 10px;
+        border-radius: 999px;
+        font-size: .78rem;
+        font-weight: 800;
+        white-space: nowrap;
+    }}
+
+    .admin-summary-grid {{
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin: 10px 0 12px 0;
+    }}
+
+    .admin-summary-cell {{
+        border: 1px solid rgba(148, 163, 184, .16);
+        background: rgba(15, 23, 42, .42);
+        border-radius: 12px;
+        padding: 11px 12px;
+        min-height: 68px;
+    }}
+
+    .admin-summary-label {{
+        color: #94a3b8;
+        font-size: .72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+        margin-bottom: 5px;
+    }}
+
+    .admin-summary-value {{
+        color: #f8fafc;
+        font-size: .94rem;
+        font-weight: 750;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+    }}
+
+    .admin-summary-context {{
+        border-top: 1px solid rgba(148, 163, 184, .14);
+        margin-top: 4px;
+        padding-top: 12px;
+    }}
+
+    .admin-summary-context-title {{
+        color: #e2e8f0;
+        font-size: .80rem;
+        font-weight: 800;
+        margin-bottom: 4px;
+    }}
+
+    .admin-summary-context-text {{
+        color: #cbd5e1;
+        font-size: .88rem;
+        line-height: 1.48;
+        overflow-wrap: anywhere;
+    }}
+
+    .admin-next-action {{
+        border-radius: 12px;
+        padding: 12px 14px;
+        margin-top: 12px;
+        border: 1px solid rgba(148, 163, 184, .16);
+    }}
+
+    .admin-next-action strong {{
+        display: block;
+        margin-bottom: 3px;
+        color: #f8fafc;
+    }}
+
+    .admin-next-action span {{
+        color: #cbd5e1;
+        font-size: .88rem;
+        line-height: 1.45;
+    }}
+
+    .admin-action-attention {{
+        background: rgba(245, 158, 11, .09);
+        border-left: 4px solid #f59e0b;
+    }}
+
+    .admin-action-wait {{
+        background: rgba(59, 130, 246, .08);
+        border-left: 4px solid #3b82f6;
+    }}
+
+    .admin-action-ok {{
+        background: rgba(16, 185, 129, .08);
+        border-left: 4px solid #10b981;
+    }}
+
+    .admin-action-info {{
+        background: rgba(100, 116, 139, .08);
+        border-left: 4px solid #64748b;
+    }}
+
+    .timeline-entry {{
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr);
+        gap: 10px;
+        position: relative;
+        padding-bottom: 12px;
+    }}
+
+    .timeline-entry:last-child {{
+        padding-bottom: 0;
+    }}
+
+    .timeline-axis {{
+        position: relative;
+        display: flex;
+        justify-content: center;
+    }}
+
+    .timeline-axis::after {{
+        content: "";
+        position: absolute;
+        top: 17px;
+        bottom: -13px;
+        width: 2px;
+        background: rgba(148, 163, 184, .18);
+    }}
+
+    .timeline-entry:last-child .timeline-axis::after {{
+        display: none;
+    }}
+
+    .timeline-dot {{
+        width: 10px;
+        height: 10px;
+        margin-top: 7px;
+        border-radius: 50%;
+        box-shadow: 0 0 0 4px rgba(148, 163, 184, .08);
+        z-index: 1;
+    }}
+
+    .timeline-dot-ferpam {{
+        background: #10b981;
+    }}
+
+    .timeline-dot-citel {{
+        background: #3b82f6;
+    }}
+
+    .timeline-dot-user {{
+        background: #f59e0b;
+    }}
+
+    .timeline-dot-third {{
+        background: #a78bfa;
+    }}
+
+    .timeline-card {{
+        background: rgba(15, 23, 42, .30);
+        border: 1px solid rgba(148, 163, 184, .14);
+        border-radius: 12px;
+        padding: 10px 12px;
+    }}
+
+    .timeline-top {{
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+    }}
+
+    .timeline-title {{
+        color: #f8fafc;
+        font-size: .91rem;
+        font-weight: 800;
+        line-height: 1.35;
+    }}
+
+    .timeline-date {{
+        color: #94a3b8;
+        font-size: .76rem;
+        white-space: nowrap;
+        margin-top: 1px;
+    }}
+
+    .timeline-origin {{
+        display: inline-block;
+        margin-top: 5px;
+        padding: 2px 7px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, .09);
+        color: #cbd5e1;
+        font-size: .70rem;
+        font-weight: 700;
+    }}
+
+    .timeline-description {{
+        color: #cbd5e1;
+        font-size: .84rem;
+        line-height: 1.46;
+        margin-top: 8px;
+        overflow-wrap: anywhere;
+    }}
+
+    @media (max-width: 900px) {{
+        .admin-summary-grid {{
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }}
+
+        .timeline-top {{
+            display: block;
+        }}
+
+        .timeline-date {{
+            margin-top: 4px;
+        }}
+    }}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -1346,34 +1593,50 @@ def _resumo_texto(valor, limite=260):
     return texto
 
 
-def gerar_resumo_automatico_chamado(chamado):
+def _dados_resumo_automatico_chamado(chamado):
+    """
+    Monta os dados do resumo em formato estruturado para evitar um paredão de texto.
+    A consulta da Citel, quando existir, continua sendo somente leitura e usa cache.
+    """
     ticket = str(chamado.get("id_chamado", "") or "").strip()
     status = str(chamado.get("status", "") or "Aberto").strip()
     prioridade = str(chamado.get("prioridade", "") or "Não informada").strip()
     tecnico = str(chamado.get("tecnico", "") or "Não atribuído").strip()
     solicitante = str(chamado.get("solicitante", "") or "Não informado").strip()
     departamento = str(chamado.get("departamento", "") or "Não informado").strip()
-    titulo = _resumo_texto(chamado.get("titulo", "Sem título"), 160)
-    atividade = _resumo_texto(chamado.get("atividade_realizada", ""), 260)
+    titulo = _resumo_texto(chamado.get("titulo", "Sem título"), 180)
+    atividade = _resumo_texto(chamado.get("atividade_realizada", ""), 420)
+    ocorrencia = _resumo_texto(chamado.get("ocorrencia", ""), 420)
+
     abertura = chamado.get("dt_abertura")
-    abertura_str = abertura.strftime("%d/%m/%Y às %H:%M") if pd.notna(abertura) else "data não informada"
+    if pd.notna(abertura):
+        try:
+            abertura_str = pd.Timestamp(abertura).strftime("%d/%m/%Y às %H:%M")
+        except Exception:
+            abertura_str = "Não informada"
+    else:
+        abertura_str = "Não informada"
 
-    partes = [
-        f"Chamado #{ticket} aberto em {abertura_str} por {solicitante}, do departamento {departamento}.",
-        f"Assunto: {titulo}. Status atual: {status}; prioridade: {prioridade}; técnico: {tecnico}.",
-    ]
-
-    if atividade:
-        partes.append(f"Última atividade registrada: {atividade}")
-
-    proximo_passo = "Acompanhar o atendimento conforme o status atual."
+    proxima_acao = "Acompanhar o atendimento conforme o status atual."
+    acao_titulo = "Próxima ação"
+    acao_tipo = "info"
     grupo = classificar_status_grupo(status)
+
     if grupo == "Concluídos":
-        proximo_passo = "Chamado finalizado; nenhuma ação operacional pendente foi identificada."
+        acao_titulo = "Chamado finalizado"
+        proxima_acao = "Nenhuma ação operacional pendente foi identificada."
+        acao_tipo = "ok"
     elif not tecnico or tecnico.casefold() in {"não atribuído", "nao atribuido", "nan"}:
-        proximo_passo = "Ação sugerida: atribuir um técnico responsável."
+        acao_titulo = "Ação da TI necessária"
+        proxima_acao = "Atribuir um técnico responsável para este chamado."
+        acao_tipo = "attention"
     elif "solicitante" in status.casefold():
-        proximo_passo = "Aguardando retorno do solicitante."
+        acao_titulo = "Aguardando solicitante"
+        proxima_acao = "O próximo retorno está com o solicitante."
+        acao_tipo = "wait"
+
+    ticket_citel = None
+    estado_citel = None
 
     vinculados = localizar_terceiros_do_chamado(chamado)
     if not vinculados.empty:
@@ -1381,33 +1644,135 @@ def gerar_resumo_automatico_chamado(chamado):
             vinculados["nome_terceiro"].fillna("").astype(str).str.contains("citel", case=False, na=False)
             | vinculados["link"].fillna("").astype(str).str.contains("citelsoftware", case=False, na=False)
         ]
+
         if not citel.empty:
             item = citel.iloc[0]
-            ticket_citel = extrair_id_ticket_citel(item.get("link", ""), item.get("id_ticket", ""))
+            ticket_citel = extrair_id_ticket_citel(
+                item.get("link", ""),
+                item.get("id_ticket", ""),
+            )
             situacao = consultar_vez_resposta_citel(ticket_citel)
-            if situacao.get("ok") and situacao.get("estado") == "aguardando_ti":
-                proximo_passo = f"Ação sugerida: a Citel respondeu no chamado #{ticket_citel}; o próximo retorno está com a TI/Ferpam."
-            elif situacao.get("ok") and situacao.get("estado") == "aguardando_citel":
-                proximo_passo = f"Aguardando resposta da Citel no chamado externo #{ticket_citel}."
+            estado_citel = situacao.get("estado") if situacao.get("ok") else None
 
-    partes.append(proximo_passo)
+            if situacao.get("ok") and situacao.get("estado") == "aguardando_ti":
+                acao_titulo = "Citel respondeu — ação da TI"
+                proxima_acao = (
+                    f"A Citel respondeu no chamado #{ticket_citel}. "
+                    "O próximo retorno está com a TI/Ferpam."
+                )
+                acao_tipo = "attention"
+
+            elif situacao.get("ok") and situacao.get("estado") == "aguardando_citel":
+                acao_titulo = "Aguardando Citel"
+                proxima_acao = (
+                    f"A TI/Ferpam já respondeu no chamado externo #{ticket_citel}. "
+                    "Agora estamos aguardando a Citel."
+                )
+                acao_tipo = "wait"
+
+    return {
+        "ticket": ticket,
+        "status": status,
+        "prioridade": prioridade,
+        "tecnico": tecnico,
+        "solicitante": solicitante,
+        "departamento": departamento,
+        "titulo": titulo,
+        "atividade": atividade,
+        "ocorrencia": ocorrencia,
+        "abertura": abertura_str,
+        "acao_titulo": acao_titulo,
+        "proxima_acao": proxima_acao,
+        "acao_tipo": acao_tipo,
+        "ticket_citel": ticket_citel,
+        "estado_citel": estado_citel,
+    }
+
+
+def gerar_resumo_automatico_chamado(chamado):
+    """
+    Mantida por compatibilidade. Retorna uma versão textual curta,
+    mas a interface administrativa usa o resumo estruturado.
+    """
+    dados = _dados_resumo_automatico_chamado(chamado)
+
+    partes = [
+        f"Chamado #{dados['ticket']}: {dados['titulo']}.",
+        f"Status: {dados['status']}.",
+        f"Técnico: {dados['tecnico']}.",
+        dados["proxima_acao"],
+    ]
     return " ".join(partes)
 
 
-def _adicionar_evento_timeline(eventos, data, origem, titulo, descricao=""):
-    dt = pd.to_datetime(data, errors="coerce", dayfirst=True)
+def _normalizar_data_timeline(valor):
+    """
+    Normaliza toda data da timeline para UTC.
+
+    O Google Sheets entrega datas internas sem timezone (horário local de
+    Tocantins/Brasília), enquanto o Zendesk/Citel entrega ISO com timezone.
+    Sem normalizar, o Pandas tenta comparar Timestamp naive com aware e gera:
+    TypeError: Cannot compare tz-naive and tz-aware timestamps.
+    """
+    if valor is None:
+        return None
+
+    try:
+        if isinstance(valor, str) and not valor.strip():
+            return None
+    except Exception:
+        pass
+
+    try:
+        dt = pd.to_datetime(valor, errors="coerce", dayfirst=True)
+    except Exception:
+        return None
+
     if pd.isna(dt):
+        return None
+
+    try:
+        dt = pd.Timestamp(dt)
+    except Exception:
+        return None
+
+    try:
+        if dt.tzinfo is None:
+            # Datas internas da planilha representam horário local.
+            dt = dt.tz_localize(
+                "America/Araguaina",
+                ambiguous="NaT",
+                nonexistent="shift_forward",
+            )
+            if pd.isna(dt):
+                return None
+        return dt.tz_convert("UTC")
+    except Exception:
+        # Fallback defensivo para versões diferentes do pandas.
+        try:
+            if dt.tzinfo is None:
+                dt = dt.tz_localize("America/Araguaina")
+            return dt.tz_convert("UTC")
+        except Exception:
+            return None
+
+
+def _adicionar_evento_timeline(eventos, data, origem, titulo, descricao=""):
+    dt = _normalizar_data_timeline(data)
+    if dt is None:
         return
+
     eventos.append({
         "data": dt,
-        "origem": origem,
-        "titulo": titulo,
+        "origem": str(origem or "Não informado").strip(),
+        "titulo": str(titulo or "Evento").strip(),
         "descricao": _resumo_texto(descricao, 1000),
     })
 
 
 def montar_linha_tempo_unica(chamado, incluir_citel=False):
     eventos = []
+
     _adicionar_evento_timeline(
         eventos,
         chamado.get("dt_abertura"),
@@ -1415,6 +1780,7 @@ def montar_linha_tempo_unica(chamado, incluir_citel=False):
         "Chamado aberto",
         chamado.get("ocorrencia", ""),
     )
+
     _adicionar_evento_timeline(
         eventos,
         chamado.get("dt_tecnico"),
@@ -1424,8 +1790,12 @@ def montar_linha_tempo_unica(chamado, incluir_citel=False):
     )
 
     vinculados = localizar_terceiros_do_chamado(chamado)
+
     for _, terceiro in vinculados.iterrows():
-        nome = str(terceiro.get("nome_terceiro", "") or "Terceiro").strip() or "Terceiro"
+        nome = str(
+            terceiro.get("nome_terceiro", "") or "Terceiro"
+        ).strip() or "Terceiro"
+
         _adicionar_evento_timeline(
             eventos,
             terceiro.get("data_solicitação"),
@@ -1433,22 +1803,32 @@ def montar_linha_tempo_unica(chamado, incluir_citel=False):
             f"Terceiro acionado: {nome}",
             f"Ticket externo: {terceiro.get('id_ticket') or '-'}",
         )
+
         _adicionar_evento_timeline(
             eventos,
             terceiro.get("ultima_atualizacao"),
             nome,
-            f"Atualização registrada do terceiro: {nome}",
-            "Data de última atualização registrada na planilha de terceiros.",
+            f"Atualização registrada — {nome}",
+            "Última atualização registrada na planilha de terceiros.",
         )
 
-        eh_citel = "citel" in nome.casefold() or "citelsoftware" in str(terceiro.get("link", "")).casefold()
+        eh_citel = (
+            "citel" in nome.casefold()
+            or "citelsoftware" in str(terceiro.get("link", "")).casefold()
+        )
+
         if incluir_citel and eh_citel:
-            ticket_citel = extrair_id_ticket_citel(terceiro.get("link", ""), terceiro.get("id_ticket", ""))
+            ticket_citel = extrair_id_ticket_citel(
+                terceiro.get("link", ""),
+                terceiro.get("id_ticket", ""),
+            )
             historico = consultar_historico_citel(ticket_citel)
+
             if historico.get("ok"):
                 for mensagem in historico.get("mensagens", []):
                     papel = mensagem.get("papel")
                     autor = "Citel" if papel == "agent" else "TI / Ferpam"
+
                     _adicionar_evento_timeline(
                         eventos,
                         mensagem.get("created_at"),
@@ -1459,6 +1839,8 @@ def montar_linha_tempo_unica(chamado, incluir_citel=False):
 
     atividade = str(chamado.get("atividade_realizada", "") or "").strip()
     if atividade:
+        # Só usa a conclusão como momento da atividade se a data existir.
+        # Evita criar evento com data inventada.
         _adicionar_evento_timeline(
             eventos,
             chamado.get("dt_conclusao_efetiva"),
@@ -1476,17 +1858,174 @@ def montar_linha_tempo_unica(chamado, incluir_citel=False):
     )
 
     nota = chamado.get("nota_num")
-    if pd.notna(nota) and float(nota) > 0:
-        _adicionar_evento_timeline(
-            eventos,
-            chamado.get("dt_aval_parsed"),
-            "Solicitante",
-            f"Atendimento avaliado: {float(nota):.0f}/5",
-            chamado.get("comentario_avaliacao", ""),
-        )
+    if pd.notna(nota):
+        try:
+            nota_float = float(nota)
+        except (TypeError, ValueError):
+            nota_float = 0
 
+        if nota_float > 0:
+            _adicionar_evento_timeline(
+                eventos,
+                chamado.get("dt_aval_parsed"),
+                "Solicitante",
+                f"Atendimento avaliado: {nota_float:.0f}/5",
+                chamado.get("comentario_avaliacao", ""),
+            )
+
+    # Todas as datas já estão timezone-aware em UTC.
     eventos.sort(key=lambda e: e["data"])
     return eventos
+
+
+def _classe_timeline_origem(origem):
+    origem_cf = str(origem or "").casefold()
+
+    if "citel" in origem_cf:
+        return "timeline-dot-citel"
+
+    if "ferpam" in origem_cf or origem_cf == "ti":
+        return "timeline-dot-ferpam"
+
+    if "solicitante" in origem_cf:
+        return "timeline-dot-user"
+
+    return "timeline-dot-third"
+
+
+def _render_evento_timeline(evento):
+    data = evento.get("data")
+    if data is None:
+        return
+
+    try:
+        data_local = pd.Timestamp(data).tz_convert("America/Araguaina")
+        data_str = data_local.strftime("%d/%m/%Y às %H:%M")
+    except Exception:
+        data_str = "Data não informada"
+
+    titulo = html.escape(str(evento.get("titulo", "Evento") or "Evento"), quote=True)
+    origem = html.escape(str(evento.get("origem", "Não informado") or "Não informado"), quote=True)
+    descricao = html.escape(str(evento.get("descricao", "") or ""), quote=True)
+    descricao = descricao.replace("\n", "<br>")
+
+    classe_dot = _classe_timeline_origem(evento.get("origem"))
+
+    descricao_html = ""
+    if descricao:
+        descricao_html = f'<div class="timeline-description">{descricao}</div>'
+
+    st.markdown(
+        f"""
+        <div class="timeline-entry">
+            <div class="timeline-axis">
+                <div class="timeline-dot {classe_dot}"></div>
+            </div>
+            <div class="timeline-card">
+                <div class="timeline-top">
+                    <div class="timeline-title">{titulo}</div>
+                    <div class="timeline-date">{html.escape(data_str)}</div>
+                </div>
+                <div class="timeline-origin">{origem}</div>
+                {descricao_html}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_resumo_admin_chamado(chamado):
+    dados = _dados_resumo_automatico_chamado(chamado)
+
+    ticket = html.escape(dados["ticket"], quote=True)
+    titulo = html.escape(dados["titulo"], quote=True)
+    status = html.escape(dados["status"], quote=True)
+    prioridade = html.escape(dados["prioridade"], quote=True)
+    tecnico = html.escape(dados["tecnico"], quote=True)
+    abertura = html.escape(dados["abertura"], quote=True)
+    solicitante = html.escape(dados["solicitante"], quote=True)
+    departamento = html.escape(dados["departamento"], quote=True)
+    ocorrencia = html.escape(dados["ocorrencia"], quote=True)
+    atividade = html.escape(dados["atividade"], quote=True)
+    acao_titulo = html.escape(dados["acao_titulo"], quote=True)
+    proxima_acao = html.escape(dados["proxima_acao"], quote=True)
+
+    classe_acao = {
+        "attention": "admin-action-attention",
+        "wait": "admin-action-wait",
+        "ok": "admin-action-ok",
+        "info": "admin-action-info",
+    }.get(dados["acao_tipo"], "admin-action-info")
+
+    contexto = (
+        f"<strong>{solicitante}</strong> • {departamento}"
+        if solicitante or departamento
+        else "Solicitante/departamento não informados"
+    )
+
+    atividade_html = ""
+    if atividade:
+        atividade_html = f"""
+        <div class="admin-summary-context">
+            <div class="admin-summary-context-title">Última atividade registrada</div>
+            <div class="admin-summary-context-text">{atividade}</div>
+        </div>
+        """
+
+    ocorrencia_html = ""
+    if ocorrencia:
+        ocorrencia_html = f"""
+        <div class="admin-summary-context">
+            <div class="admin-summary-context-title">Contexto do chamado</div>
+            <div class="admin-summary-context-text">{ocorrencia}</div>
+        </div>
+        """
+
+    st.markdown(
+        f"""
+        <div class="admin-summary-head">
+            <div>
+                <div class="admin-summary-kicker">Resumo operacional</div>
+                <div class="admin-summary-title">{titulo}</div>
+            </div>
+            <div class="admin-summary-ticket">#{ticket}</div>
+        </div>
+
+        <div class="admin-summary-grid">
+            <div class="admin-summary-cell">
+                <div class="admin-summary-label">Status</div>
+                <div class="admin-summary-value">{status}</div>
+            </div>
+            <div class="admin-summary-cell">
+                <div class="admin-summary-label">Prioridade</div>
+                <div class="admin-summary-value">{prioridade}</div>
+            </div>
+            <div class="admin-summary-cell">
+                <div class="admin-summary-label">Técnico</div>
+                <div class="admin-summary-value">{tecnico}</div>
+            </div>
+            <div class="admin-summary-cell">
+                <div class="admin-summary-label">Aberto em</div>
+                <div class="admin-summary-value">{abertura}</div>
+            </div>
+        </div>
+
+        <div class="admin-summary-context">
+            <div class="admin-summary-context-title">Solicitante / Departamento</div>
+            <div class="admin-summary-context-text">{contexto}</div>
+        </div>
+
+        {ocorrencia_html}
+        {atividade_html}
+
+        <div class="admin-next-action {classe_acao}">
+            <strong>{acao_titulo}</strong>
+            <span>{proxima_acao}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_ferramentas_admin_ticket(chamado):
@@ -1494,65 +2033,89 @@ def render_ferramentas_admin_ticket(chamado):
         return
 
     st.divider()
-    st.subheader("🧠 Ferramentas administrativas do chamado")
+    st.markdown("### 🧠 Painel administrativo do chamado")
 
     with st.container(border=True):
-        st.markdown("#### Resumo automático do chamado")
-        st.write(gerar_resumo_automatico_chamado(chamado))
-        st.caption("Resumo operacional gerado por regras a partir dos dados do chamado e, quando houver, da situação atual da Citel.")
+        render_resumo_admin_chamado(chamado)
 
     ticket = str(chamado.get("id_chamado", "") or "").strip()
     chave_timeline = f"timeline_citel_{ticket}"
+
     if chave_timeline not in st.session_state:
         st.session_state[chave_timeline] = False
 
-    with st.expander("🕓 Linha do tempo única", expanded=False):
+    with st.expander("🕓 Histórico consolidado do chamado", expanded=False):
         vinculados = localizar_terceiros_do_chamado(chamado)
+
         tem_citel = False
         if not vinculados.empty:
             tem_citel = bool((
-                vinculados["nome_terceiro"].fillna("").astype(str).str.contains("citel", case=False, na=False)
-                | vinculados["link"].fillna("").astype(str).str.contains("citelsoftware", case=False, na=False)
+                vinculados["nome_terceiro"]
+                .fillna("")
+                .astype(str)
+                .str.contains("citel", case=False, na=False)
+                |
+                vinculados["link"]
+                .fillna("")
+                .astype(str)
+                .str.contains("citelsoftware", case=False, na=False)
             ).any())
 
         if tem_citel:
             col_t1, col_t2 = st.columns([7, 3])
+
             with col_t1:
-                st.caption("A linha do tempo começa com eventos internos. Você pode incluir também as mensagens públicas da Citel.")
+                if st.session_state[chave_timeline]:
+                    st.caption(
+                        "Exibindo eventos internos + mensagens públicas da Citel."
+                    )
+                else:
+                    st.caption(
+                        "Exibindo eventos internos. Inclua a Citel para ver a conversa externa na mesma timeline."
+                    )
+
             with col_t2:
                 if not st.session_state[chave_timeline]:
-                    if st.button("🌐 Incluir Citel", key=f"btn_timeline_citel_{ticket}", use_container_width=True):
+                    if st.button(
+                        "🌐 Incluir Citel",
+                        key=f"btn_timeline_citel_{ticket}",
+                        use_container_width=True,
+                    ):
                         st.session_state[chave_timeline] = True
                         registrar_auditoria_seguro(
                             "CARREGAR_TIMELINE_CITEL",
                             ticket=ticket,
-                            detalhes="Mensagens públicas da Citel incluídas na linha do tempo administrativa.",
+                            detalhes=(
+                                "Mensagens públicas da Citel incluídas "
+                                "na linha do tempo administrativa."
+                            ),
                         )
+                        st.rerun()
                 else:
-                    if st.button("Ocultar Citel", key=f"btn_timeline_ocultar_{ticket}", use_container_width=True):
+                    if st.button(
+                        "Ocultar Citel",
+                        key=f"btn_timeline_ocultar_{ticket}",
+                        use_container_width=True,
+                    ):
                         st.session_state[chave_timeline] = False
+                        st.rerun()
 
-        eventos = montar_linha_tempo_unica(chamado, incluir_citel=st.session_state[chave_timeline])
+        eventos = montar_linha_tempo_unica(
+            chamado,
+            incluir_citel=st.session_state[chave_timeline],
+        )
+
         if not eventos:
-            st.info("Não há datas suficientes para montar a linha do tempo deste chamado.")
+            st.info(
+                "Não há datas suficientes para montar o histórico deste chamado."
+            )
         else:
+            # Legenda simples para facilitar leitura sem ocupar espaço.
+            st.caption("🟢 TI/Ferpam   •   🔵 Citel   •   🟠 Solicitante   •   🟣 Outros terceiros")
+
             for evento in eventos:
-                data = evento["data"]
-                if getattr(data, "tzinfo", None) is not None:
-                    try:
-                        data = data.tz_convert("America/Araguaina")
-                    except Exception:
-                        pass
-                data_str = data.strftime("%d/%m/%Y às %H:%M")
-                with st.container(border=True):
-                    c1, c2 = st.columns([7, 3])
-                    with c1:
-                        st.markdown(f"**{evento['titulo']}**")
-                        st.caption(f"Origem: {evento['origem']}")
-                    with c2:
-                        st.caption(data_str)
-                    if evento.get("descricao"):
-                        st.write(evento["descricao"])
+                _render_evento_timeline(evento)
+
 
 # ============================================================
 # TELA DETALHES DO TICKET
@@ -2521,3 +3084,4 @@ if st.session_state.tela == "dashboard":
                     colunas_visiveis = [c for c in ["timestamp", "usuario_admin", "evento", "ticket", "detalhes"] if c in df_aud_view.columns]
                     st.dataframe(df_aud_view[colunas_visiveis].head(500), use_container_width=True, hide_index=True)
                     st.caption("Mostrando no máximo os 500 registros mais recentes do filtro atual.")
+
