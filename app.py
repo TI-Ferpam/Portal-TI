@@ -443,7 +443,7 @@ st.markdown(f"""
 
     .admin-summary-grid {{
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(5, minmax(0, 1fr));
         gap: 10px;
         margin: 10px 0 12px 0;
     }}
@@ -649,6 +649,184 @@ st.markdown(f"""
         }}
     }}
 
+
+
+    /* ============================================================
+       MODO TV
+       ============================================================ */
+    .tv-header {{
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        gap: 20px;
+        margin-bottom: 16px;
+    }}
+
+    .tv-eyebrow {{
+        color: #60a5fa;
+        font-size: .78rem;
+        font-weight: 800;
+        letter-spacing: .10em;
+        text-transform: uppercase;
+        margin-bottom: 3px;
+    }}
+
+    .tv-title {{
+        color: #f8fafc;
+        font-size: 2rem;
+        font-weight: 900;
+        line-height: 1.05;
+        letter-spacing: -.03em;
+    }}
+
+    .tv-clock {{
+        color: #cbd5e1;
+        font-size: .88rem;
+        text-align: right;
+        white-space: nowrap;
+    }}
+
+    .tv-kpi-grid {{
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin: 8px 0 16px 0;
+    }}
+
+    .tv-kpi {{
+        background: linear-gradient(180deg, rgba(30,41,59,.92), rgba(15,23,42,.88));
+        border: 1px solid rgba(148,163,184,.16);
+        border-radius: 15px;
+        padding: 14px 16px;
+        min-height: 96px;
+        box-shadow: 0 10px 28px rgba(0,0,0,.10);
+    }}
+
+    .tv-kpi-label {{
+        color: #94a3b8;
+        font-size: .73rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: .07em;
+    }}
+
+    .tv-kpi-value {{
+        color: #f8fafc;
+        font-size: 2rem;
+        line-height: 1;
+        font-weight: 900;
+        margin-top: 9px;
+    }}
+
+    .tv-kpi-sub {{
+        color: #94a3b8;
+        font-size: .74rem;
+        margin-top: 6px;
+    }}
+
+    .tv-section-title {{
+        color: #f8fafc;
+        font-size: 1.02rem;
+        font-weight: 850;
+        margin-bottom: 9px;
+    }}
+
+    .tv-alert {{
+        border: 1px solid rgba(148,163,184,.14);
+        border-radius: 12px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+        background: rgba(15,23,42,.52);
+    }}
+
+    .tv-alert-new {{
+        border-left: 4px solid #10b981;
+        background: rgba(16,185,129,.07);
+    }}
+
+    .tv-alert-citel {{
+        border-left: 4px solid #3b82f6;
+        background: rgba(59,130,246,.07);
+    }}
+
+    .tv-alert-warning {{
+        border-left: 4px solid #f59e0b;
+        background: rgba(245,158,11,.07);
+    }}
+
+    .tv-alert-critical {{
+        border-left: 4px solid #ef4444;
+        background: rgba(239,68,68,.07);
+    }}
+
+    .tv-alert-title {{
+        color: #f8fafc;
+        font-size: .89rem;
+        font-weight: 800;
+        line-height: 1.35;
+    }}
+
+    .tv-alert-body {{
+        color: #cbd5e1;
+        font-size: .78rem;
+        line-height: 1.42;
+        margin-top: 3px;
+    }}
+
+    .tv-alert-meta {{
+        color: #94a3b8;
+        font-size: .69rem;
+        margin-top: 5px;
+    }}
+
+    .tv-empty {{
+        color: #94a3b8;
+        font-size: .82rem;
+        border: 1px dashed rgba(148,163,184,.20);
+        border-radius: 12px;
+        padding: 18px;
+        text-align: center;
+    }}
+
+    .tv-live-pill {{
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        color: #86efac;
+        background: rgba(34,197,94,.08);
+        border: 1px solid rgba(34,197,94,.20);
+        padding: 4px 9px;
+        border-radius: 999px;
+        font-size: .70rem;
+        font-weight: 800;
+    }}
+
+    .tv-dot-live {{
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #22c55e;
+        box-shadow: 0 0 0 4px rgba(34,197,94,.10);
+    }}
+
+    .tv-auto-on {{
+        color: #86efac;
+    }}
+
+    .tv-auto-off {{
+        color: #fbbf24;
+    }}
+
+    @media (max-width: 1050px) {{
+        .tv-kpi-grid {{
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }}
+
+        .tv-title {{
+            font-size: 1.55rem;
+        }}
+    }}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -708,14 +886,39 @@ else:
 st.sidebar.divider()
 opcoes_menu = ["🔍 Consultar Chamados"]
 if st.session_state.autenticado_admin:
-    opcoes_menu.append("📊 Dashboard de Indicadores")
+    opcoes_menu.extend([
+        "📊 Dashboard de Indicadores",
+        "📺 Modo TV",
+    ])
 
-opcao_menu = st.sidebar.radio("📍 Navegação", opcoes_menu, index=0 if st.session_state.tela in ["busca", "ticket"] else 1)
+if st.session_state.tela in ["busca", "ticket"]:
+    indice_menu = 0
+elif st.session_state.tela == "tv" and st.session_state.autenticado_admin:
+    indice_menu = 2
+else:
+    indice_menu = 1 if st.session_state.autenticado_admin else 0
+
+opcao_menu = st.sidebar.radio(
+    "📍 Navegação",
+    opcoes_menu,
+    index=indice_menu,
+)
 
 if opcao_menu == "📊 Dashboard de Indicadores" and st.session_state.tela != "dashboard":
-    registrar_auditoria_seguro("ABRIR_DASHBOARD", detalhes="Acesso ao dashboard administrativo.")
+    registrar_auditoria_seguro(
+        "ABRIR_DASHBOARD",
+        detalhes="Acesso ao dashboard administrativo.",
+    )
     st.session_state.tela = "dashboard"
-elif opcao_menu == "🔍 Consultar Chamados" and st.session_state.tela == "dashboard":
+
+elif opcao_menu == "📺 Modo TV" and st.session_state.tela != "tv":
+    registrar_auditoria_seguro(
+        "ABRIR_MODO_TV",
+        detalhes="Modo TV administrativo iniciado.",
+    )
+    st.session_state.tela = "tv"
+
+elif opcao_menu == "🔍 Consultar Chamados" and st.session_state.tela in ["dashboard", "tv"]:
     st.session_state.tela = "busca"
 
 # ============================================================
@@ -908,13 +1111,44 @@ def _ultimo_comentario_citel(ticket_id, role, headers, auth):
     return comentarios[0] if comentarios else None
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+def _comentario_citel_indica_roadmap(comentario):
+    """
+    Regra operacional da Ferpam:
+    se a ÚLTIMA mensagem pública da própria Citel contém a palavra
+    'roadmap' (aceitando também 'road map'), o chamado é tratado
+    como ROADMAP e não como 'aguardando Citel/TI'.
+    """
+    if not isinstance(comentario, dict):
+        return False
+
+    texto = str(
+        comentario.get("plain_body")
+        or comentario.get("body")
+        or ""
+    ).strip().casefold()
+
+    if not texto:
+        return False
+
+    return bool(re.search(r"\broad\s*map\b", texto, flags=re.IGNORECASE))
+
+
+@st.cache_data(ttl=55, show_spinner=False)
 def consultar_vez_resposta_citel(ticket_id):
     """
-    Retorna apenas de quem é a vez de responder.
-    Não copia texto, anexos ou informações desnecessárias do chamado externo.
+    Classifica o chamado externo em:
+      - roadmap
+      - aguardando_ti
+      - aguardando_citel
+
+    ROADMAP tem prioridade sobre a regra de "quem falou por último":
+    se a última mensagem da Citel contém 'roadmap', o ticket fica
+    separado e não gera alerta de resposta pendente.
+
+    A função é somente leitura.
     """
     ticket_id = str(ticket_id or "").strip()
+
     if not ticket_id:
         return {
             "ok": False,
@@ -923,20 +1157,37 @@ def consultar_vez_resposta_citel(ticket_id):
         }
 
     headers, auth, erro_config = _auth_citel()
+
     if erro_config:
-        return {"ok": False, "estado": "nao_configurado", "erro": erro_config}
+        return {
+            "ok": False,
+            "estado": "nao_configurado",
+            "erro": erro_config,
+        }
 
     try:
-        ultimo_agent = _ultimo_comentario_citel(ticket_id, "agent", headers, auth)
-        ultimo_usuario = _ultimo_comentario_citel(ticket_id, "end_user", headers, auth)
+        ultimo_agent = _ultimo_comentario_citel(
+            ticket_id,
+            "agent",
+            headers,
+            auth,
+        )
+        ultimo_usuario = _ultimo_comentario_citel(
+            ticket_id,
+            "end_user",
+            headers,
+            auth,
+        )
 
         data_agent = pd.to_datetime(
-            ultimo_agent.get("created_at") if ultimo_agent else None,
+            ultimo_agent.get("created_at")
+            if ultimo_agent else None,
             errors="coerce",
             utc=True,
         )
         data_usuario = pd.to_datetime(
-            ultimo_usuario.get("created_at") if ultimo_usuario else None,
+            ultimo_usuario.get("created_at")
+            if ultimo_usuario else None,
             errors="coerce",
             utc=True,
         )
@@ -944,13 +1195,68 @@ def consultar_vez_resposta_citel(ticket_id):
         tem_agent = pd.notna(data_agent)
         tem_usuario = pd.notna(data_usuario)
 
-        if tem_agent and (not tem_usuario or data_agent > data_usuario):
+        datas_validas = [
+            dt
+            for dt in [data_agent, data_usuario]
+            if pd.notna(dt)
+        ]
+
+        ultima_interacao = (
+            max(datas_validas)
+            if datas_validas
+            else None
+        )
+
+        ultima_data_iso = (
+            ultima_interacao.isoformat()
+            if ultima_interacao is not None
+            else None
+        )
+
+        data_agent_iso = (
+            data_agent.isoformat()
+            if tem_agent
+            else None
+        )
+
+        data_usuario_iso = (
+            data_usuario.isoformat()
+            if tem_usuario
+            else None
+        )
+
+        # A regra de ROADMAP olha especificamente a última mensagem
+        # enviada pela própria Citel.
+        if _comentario_citel_indica_roadmap(ultimo_agent):
+            return {
+                "ok": True,
+                "estado": "roadmap",
+                "titulo": "Em Roadmap",
+                "descricao": (
+                    "A última mensagem da Citel identifica este chamado "
+                    "como Roadmap. Não há resposta operacional pendente."
+                ),
+                "ultima_data": ultima_data_iso,
+                "ultima_data_citel": data_agent_iso,
+                "ultima_data_ferpam": data_usuario_iso,
+                "roadmap_detectado": True,
+            }
+
+        if tem_agent and (
+            not tem_usuario
+            or data_agent > data_usuario
+        ):
             return {
                 "ok": True,
                 "estado": "aguardando_ti",
                 "titulo": "Citel respondeu — aguardando TI",
-                "descricao": "A Citel foi a última a responder neste chamado.",
-                "ultima_data": data_agent.isoformat(),
+                "descricao": (
+                    "A Citel foi a última a responder neste chamado."
+                ),
+                "ultima_data": ultima_data_iso,
+                "ultima_data_citel": data_agent_iso,
+                "ultima_data_ferpam": data_usuario_iso,
+                "roadmap_detectado": False,
             }
 
         if tem_usuario:
@@ -958,8 +1264,13 @@ def consultar_vez_resposta_citel(ticket_id):
                 "ok": True,
                 "estado": "aguardando_citel",
                 "titulo": "Aguardando resposta da Citel",
-                "descricao": "A TI/Ferpam foi a última a responder neste chamado.",
-                "ultima_data": data_usuario.isoformat(),
+                "descricao": (
+                    "A TI/Ferpam foi a última a responder neste chamado."
+                ),
+                "ultima_data": ultima_data_iso,
+                "ultima_data_citel": data_agent_iso,
+                "ultima_data_ferpam": data_usuario_iso,
+                "roadmap_detectado": False,
             }
 
         return {
@@ -974,6 +1285,7 @@ def consultar_vez_resposta_citel(ticket_id):
             "estado": "indisponivel",
             "erro": "Não foi possível conectar ao portal da Citel.",
         }
+
     except Exception as e:
         return {
             "ok": False,
@@ -1310,7 +1622,14 @@ def render_acompanhamento_citel(chamado):
 
                 resultado_citel = consultar_vez_resposta_citel(ticket_citel)
 
-                if resultado_citel.get("ok") and resultado_citel.get("estado") == "aguardando_citel":
+                if resultado_citel.get("ok") and resultado_citel.get("estado") == "roadmap":
+                    st.info("🟣 **Chamado em Roadmap na Citel**")
+                    st.write(
+                        "A Citel informou que este chamado está em Roadmap. "
+                        "Neste momento não há resposta pendente da TI nem da Citel."
+                    )
+
+                elif resultado_citel.get("ok") and resultado_citel.get("estado") == "aguardando_citel":
                     st.warning("🟡 **Aguardando resposta da Citel**")
                     st.write("A nossa TI já respondeu. Agora estamos esperando o retorno da Citel.")
 
@@ -1654,7 +1973,15 @@ def _dados_resumo_automatico_chamado(chamado):
             situacao = consultar_vez_resposta_citel(ticket_citel)
             estado_citel = situacao.get("estado") if situacao.get("ok") else None
 
-            if situacao.get("ok") and situacao.get("estado") == "aguardando_ti":
+            if situacao.get("ok") and situacao.get("estado") == "roadmap":
+                acao_titulo = "Roadmap na Citel"
+                proxima_acao = (
+                    f"O chamado externo #{ticket_citel} está em Roadmap. "
+                    "Não há retorno operacional pendente neste momento."
+                )
+                acao_tipo = "info"
+
+            elif situacao.get("ok") and situacao.get("estado") == "aguardando_ti":
                 acao_titulo = "Citel respondeu — ação da TI"
                 proxima_acao = (
                     f"A Citel respondeu no chamado #{ticket_citel}. "
@@ -2117,6 +2444,1356 @@ def render_ferramentas_admin_ticket(chamado):
                 _render_evento_timeline(evento)
 
 
+
+# ============================================================
+# MODO TV / MONITORAMENTO OPERACIONAL
+# ============================================================
+
+def _secret_int(nome, padrao, minimo=None, maximo=None):
+    try:
+        valor = int(
+            str(st.secrets.get(nome, padrao)).strip()
+        )
+    except Exception:
+        valor = int(padrao)
+
+    if minimo is not None:
+        valor = max(minimo, valor)
+
+    if maximo is not None:
+        valor = min(maximo, valor)
+
+    return valor
+
+
+TV_REFRESH_SECONDS = _secret_int(
+    "TV_REFRESH_SECONDS",
+    60,
+    minimo=30,
+    maximo=600,
+)
+
+TV_ALERTA_DIAS = _secret_int(
+    "TV_ALERTA_DIAS",
+    5,
+    minimo=1,
+    maximo=90,
+)
+
+TV_MAX_CITEL = _secret_int(
+    "TV_MAX_CITEL",
+    50,
+    minimo=5,
+    maximo=100,
+)
+
+CITEL_ALERTA_SEM_INTERACAO_DIAS = _secret_int(
+    "CITEL_ALERTA_SEM_INTERACAO_DIAS",
+    15,
+    minimo=1,
+    maximo=180,
+)
+
+
+def _lookup_chamados_tv(df_chamados):
+    lookup = {}
+
+    for _, chamado in df_chamados.iterrows():
+        for valor in [
+            chamado.get("id_appsheet", ""),
+            chamado.get("id_chamado", ""),
+        ]:
+            chave = str(
+                valor or ""
+            ).strip().casefold()
+
+            if chave and chave not in lookup:
+                lookup[chave] = chamado
+
+    return lookup
+
+
+def _citel_ativos_tv(
+    df_chamados,
+    df_terceiros_atual,
+):
+    if (
+        df_chamados.empty
+        or df_terceiros_atual.empty
+    ):
+        return []
+
+    lookup = _lookup_chamados_tv(df_chamados)
+    registros = []
+    vistos = set()
+
+    for _, terceiro in df_terceiros_atual.iterrows():
+        nome = str(
+            terceiro.get("nome_terceiro", "") or ""
+        ).strip()
+
+        link = str(
+            terceiro.get("link", "") or ""
+        ).strip()
+
+        eh_citel = (
+            "citel" in nome.casefold()
+            or "citelsoftware" in link.casefold()
+        )
+
+        if not eh_citel:
+            continue
+
+        chave_interna = str(
+            terceiro.get("id_chamado", "") or ""
+        ).strip().casefold()
+
+        chamado = lookup.get(chave_interna)
+
+        if chamado is None:
+            continue
+
+        if classificar_status_grupo(
+            chamado.get("status", "")
+        ) == "Concluídos":
+            continue
+
+        ticket_citel = extrair_id_ticket_citel(
+            link,
+            terceiro.get("id_ticket", ""),
+        )
+
+        if not ticket_citel:
+            continue
+
+        ticket_ferpam = str(
+            chamado.get("id_chamado", "") or ""
+        ).strip()
+
+        chave_unica = (
+            ticket_ferpam,
+            ticket_citel,
+        )
+
+        if chave_unica in vistos:
+            continue
+
+        vistos.add(chave_unica)
+
+        registros.append({
+            "ticket_ferpam": ticket_ferpam,
+            "ticket_citel": ticket_citel,
+            "titulo": str(
+                chamado.get("titulo", "") or ""
+            ).strip(),
+            "status": str(
+                chamado.get("status", "") or ""
+            ).strip(),
+            "tecnico": str(
+                chamado.get("tecnico", "") or ""
+            ).strip(),
+            "departamento": str(
+                chamado.get("departamento", "") or ""
+            ).strip(),
+            "link": link,
+        })
+
+    return registros
+
+
+def _mapa_ultima_atualizacao_terceiro_tv(
+    df_terceiros_atual,
+):
+    mapa = {}
+
+    if df_terceiros_atual.empty:
+        return mapa
+
+    for _, terceiro in df_terceiros_atual.iterrows():
+        chave = str(
+            terceiro.get("id_chamado", "") or ""
+        ).strip().casefold()
+
+        if not chave:
+            continue
+
+        datas = []
+
+        for campo in [
+            "ultima_atualizacao",
+            "data_solicitação",
+        ]:
+            dt = _normalizar_data_timeline(
+                terceiro.get(campo)
+            )
+
+            if dt is not None:
+                datas.append(dt)
+
+        if not datas:
+            continue
+
+        maior = max(datas)
+        atual = mapa.get(chave)
+
+        if atual is None or maior > atual:
+            mapa[chave] = maior
+
+    return mapa
+
+
+def _chamados_parados_tv(
+    df_chamados,
+    df_terceiros_atual,
+    agora_utc,
+):
+    """
+    Aviso interno de chamado parado.
+
+    Como a planilha não possui timestamp individual de cada texto de
+    atividade_realizada, são usadas somente datas efetivamente registradas:
+    abertura, início técnico e movimentação da aba terceiros.
+    """
+    mapa_terceiro = (
+        _mapa_ultima_atualizacao_terceiro_tv(
+            df_terceiros_atual
+        )
+    )
+
+    alertas = []
+
+    for _, chamado in df_chamados.iterrows():
+        if classificar_status_grupo(
+            chamado.get("status", "")
+        ) == "Concluídos":
+            continue
+
+        datas = []
+
+        for campo in [
+            "dt_abertura",
+            "dt_tecnico",
+        ]:
+            dt = _normalizar_data_timeline(
+                chamado.get(campo)
+            )
+
+            if dt is not None:
+                datas.append(dt)
+
+        for valor_id in [
+            chamado.get("id_appsheet", ""),
+            chamado.get("id_chamado", ""),
+        ]:
+            chave = str(
+                valor_id or ""
+            ).strip().casefold()
+
+            if (
+                chave
+                and chave in mapa_terceiro
+            ):
+                datas.append(
+                    mapa_terceiro[chave]
+                )
+
+        if not datas:
+            continue
+
+        ultima = max(datas)
+
+        dias = int(
+            max(
+                0,
+                (
+                    agora_utc - ultima
+                ).total_seconds() // 86400,
+            )
+        )
+
+        if dias < TV_ALERTA_DIAS:
+            continue
+
+        alertas.append({
+            "ticket": str(
+                chamado.get(
+                    "id_chamado",
+                    "",
+                ) or ""
+            ).strip(),
+            "titulo": str(
+                chamado.get(
+                    "titulo",
+                    "",
+                ) or "Sem título"
+            ).strip(),
+            "status": str(
+                chamado.get(
+                    "status",
+                    "",
+                ) or ""
+            ).strip(),
+            "tecnico": str(
+                chamado.get(
+                    "tecnico",
+                    "",
+                ) or "Não atribuído"
+            ).strip(),
+            "dias": dias,
+            "ultima": ultima,
+        })
+
+    alertas.sort(
+        key=lambda x: (
+            x["dias"],
+            x["ultima"],
+        ),
+        reverse=True,
+    )
+
+    return alertas
+
+
+def _adicionar_evento_tv(
+    tipo,
+    ticket,
+    titulo,
+    detalhe="",
+):
+    agora = pd.Timestamp.now(tz="UTC")
+
+    eventos = list(
+        st.session_state.get(
+            "tv_eventos_recentes",
+            [],
+        )
+    )
+
+    assinatura = (
+        f"{tipo}|{ticket}|{titulo}"
+    )
+
+    for evento in eventos:
+        if (
+            evento.get("assinatura")
+            == assinatura
+        ):
+            return
+
+    eventos.append({
+        "tipo": tipo,
+        "ticket": str(ticket or ""),
+        "titulo": str(titulo or ""),
+        "detalhe": str(detalhe or ""),
+        "detectado_em": agora.isoformat(),
+        "assinatura": assinatura,
+    })
+
+    limite = (
+        agora
+        - pd.Timedelta(minutes=20)
+    )
+
+    eventos_filtrados = []
+
+    for evento in eventos:
+        dt = pd.to_datetime(
+            evento.get("detectado_em"),
+            errors="coerce",
+            utc=True,
+        )
+
+        if (
+            pd.notna(dt)
+            and dt >= limite
+        ):
+            eventos_filtrados.append(
+                evento
+            )
+
+    st.session_state.tv_eventos_recentes = (
+        eventos_filtrados[-30:]
+    )
+
+
+def _detectar_novos_chamados_tv(
+    df_chamados,
+):
+    ids_atuais = {
+        str(v).strip()
+        for v
+        in df_chamados[
+            "id_chamado"
+        ].fillna("").astype(str)
+        if str(v).strip()
+    }
+
+    anterior = st.session_state.get(
+        "tv_snapshot_ids"
+    )
+
+    if anterior is None:
+        st.session_state.tv_snapshot_ids = (
+            list(ids_atuais)
+        )
+        return
+
+    novos = (
+        ids_atuais - set(anterior)
+    )
+
+    if novos:
+        lookup = {
+            str(
+                r.get(
+                    "id_chamado",
+                    "",
+                ) or ""
+            ).strip(): r
+            for _, r
+            in df_chamados.iterrows()
+        }
+
+        for ticket in sorted(novos):
+            chamado = lookup.get(ticket)
+
+            titulo = (
+                str(
+                    chamado.get(
+                        "titulo",
+                        "",
+                    )
+                    or "Novo chamado"
+                )
+                if chamado is not None
+                else "Novo chamado"
+            )
+
+            _adicionar_evento_tv(
+                "novo_chamado",
+                ticket,
+                f"Novo chamado #{ticket}",
+                titulo,
+            )
+
+    st.session_state.tv_snapshot_ids = (
+        list(ids_atuais)
+    )
+
+
+def _processar_citel_tv(
+    df_chamados,
+    df_terceiros_atual,
+    agora_utc,
+):
+    """
+    Consulta SOMENTE leitura.
+
+    Retorna:
+      - quem está aguardando quem;
+      - quais chamados são Roadmap;
+      - há quantos dias não existe nenhuma interação pública
+        (nem da Citel nem da Ferpam).
+
+    Nenhuma mensagem é enviada à Citel.
+    """
+    ativos = _citel_ativos_tv(
+        df_chamados,
+        df_terceiros_atual,
+    )
+
+    resultados = []
+    estados_atuais = {}
+
+    for item in ativos[:TV_MAX_CITEL]:
+        ticket_citel = (
+            item["ticket_citel"]
+        )
+        ticket_ferpam = (
+            item["ticket_ferpam"]
+        )
+
+        situacao = (
+            consultar_vez_resposta_citel(
+                ticket_citel
+            )
+        )
+
+        estado = (
+            situacao.get("estado")
+            if situacao.get("ok")
+            else "indisponivel"
+        )
+
+        chave_estado = (
+            f"{ticket_ferpam}|"
+            f"{ticket_citel}"
+        )
+
+        estados_atuais[
+            chave_estado
+        ] = estado
+
+        ultima_data = pd.to_datetime(
+            situacao.get("ultima_data"),
+            errors="coerce",
+            utc=True,
+        )
+
+        dias_sem_interacao = None
+
+        if pd.notna(ultima_data):
+            dias_sem_interacao = int(
+                max(
+                    0,
+                    (
+                        agora_utc
+                        - ultima_data
+                    ).total_seconds()
+                    // 86400,
+                )
+            )
+
+        resultados.append({
+            **item,
+            "estado": estado,
+            "titulo_estado": (
+                situacao.get("titulo")
+                if situacao.get("ok")
+                else "Não foi possível consultar"
+            ),
+            "ultima_data": ultima_data,
+            "dias_sem_interacao": (
+                dias_sem_interacao
+            ),
+            "roadmap": (
+                estado == "roadmap"
+            ),
+        })
+
+    anterior = st.session_state.get(
+        "tv_snapshot_citel"
+    )
+
+    if anterior is not None:
+        for chave, estado in (
+            estados_atuais.items()
+        ):
+            estado_antigo = anterior.get(
+                chave
+            )
+
+            ticket_ferpam, ticket_citel = (
+                chave.split("|", 1)
+            )
+
+            if (
+                estado == "aguardando_ti"
+                and estado_antigo
+                != "aguardando_ti"
+            ):
+                _adicionar_evento_tv(
+                    "citel_respondeu",
+                    ticket_ferpam,
+                    (
+                        "Citel respondeu no "
+                        f"chamado #{ticket_citel}"
+                    ),
+                    (
+                        "O retorno agora está "
+                        "com a TI. "
+                        f"Ticket Ferpam "
+                        f"#{ticket_ferpam}."
+                    ),
+                )
+
+            elif (
+                estado == "roadmap"
+                and estado_antigo
+                != "roadmap"
+            ):
+                _adicionar_evento_tv(
+                    "citel_roadmap",
+                    ticket_ferpam,
+                    (
+                        f"Chamado Citel "
+                        f"#{ticket_citel} "
+                        "entrou em Roadmap"
+                    ),
+                    (
+                        "O ticket foi separado "
+                        "dos chamados com resposta "
+                        "pendente."
+                    ),
+                )
+
+    st.session_state.tv_snapshot_citel = (
+        estados_atuais
+    )
+
+    return resultados, len(ativos)
+
+
+def _html_tv_alerta(
+    classe,
+    titulo,
+    corpo="",
+    meta="",
+):
+    titulo = html.escape(
+        str(titulo or ""),
+        quote=True,
+    )
+    corpo = html.escape(
+        str(corpo or ""),
+        quote=True,
+    )
+    meta = html.escape(
+        str(meta or ""),
+        quote=True,
+    )
+
+    corpo_html = (
+        f'<div class="tv-alert-body">'
+        f'{corpo}</div>'
+        if corpo
+        else ""
+    )
+
+    meta_html = (
+        f'<div class="tv-alert-meta">'
+        f'{meta}</div>'
+        if meta
+        else ""
+    )
+
+    return f"""
+    <div class="tv-alert {classe}">
+        <div class="tv-alert-title">
+            {titulo}
+        </div>
+        {corpo_html}
+        {meta_html}
+    </div>
+    """
+
+
+def _render_lista_tv(
+    itens_html,
+    vazio,
+):
+    if not itens_html:
+        st.markdown(
+            (
+                '<div class="tv-empty">'
+                f'{html.escape(vazio)}'
+                '</div>'
+            ),
+            unsafe_allow_html=True,
+        )
+        return
+
+    for bloco in itens_html:
+        st.markdown(
+            bloco,
+            unsafe_allow_html=True,
+        )
+
+
+def render_conteudo_modo_tv():
+    agora_utc = pd.Timestamp.now(
+        tz="UTC"
+    )
+
+    agora_local = agora_utc.tz_convert(
+        "America/Araguaina"
+    )
+
+    # As funções abaixo já usam cache curto.
+    # O Modo TV não escreve em nenhum chamado externo.
+    df_tv = carregar_dados()
+    df_terc_tv = (
+        carregar_dados_terceiros()
+    )
+
+    _detectar_novos_chamados_tv(
+        df_tv
+    )
+
+    (
+        citel_resultados,
+        total_citel_ativos,
+    ) = _processar_citel_tv(
+        df_tv,
+        df_terc_tv,
+        agora_utc,
+    )
+
+    parados = _chamados_parados_tv(
+        df_tv,
+        df_terc_tv,
+        agora_utc,
+    )
+
+    df_tv_status = df_tv.copy()
+
+    if not df_tv_status.empty:
+        df_tv_status[
+            "grupo_status_tv"
+        ] = df_tv_status[
+            "status"
+        ].apply(
+            classificar_status_grupo
+        )
+
+    abertos = (
+        int(
+            (
+                df_tv_status[
+                    "grupo_status_tv"
+                ]
+                == "Abertos"
+            ).sum()
+        )
+        if "grupo_status_tv"
+        in df_tv_status.columns
+        else 0
+    )
+
+    andamento = (
+        int(
+            (
+                df_tv_status[
+                    "grupo_status_tv"
+                ]
+                == "Em Andamento"
+            ).sum()
+        )
+        if "grupo_status_tv"
+        in df_tv_status.columns
+        else 0
+    )
+
+    citel_aguardando_ti = [
+        r
+        for r in citel_resultados
+        if r["estado"]
+        == "aguardando_ti"
+    ]
+
+    citel_roadmap = [
+        r
+        for r in citel_resultados
+        if r["estado"] == "roadmap"
+    ]
+
+    # Sem interação significa:
+    # nem Citel nem Ferpam/TI escreveram há N dias.
+    # Roadmaps ficam FORA deste alerta.
+    citel_sem_interacao = [
+        r
+        for r in citel_resultados
+        if (
+            r["estado"] != "roadmap"
+            and r["estado"]
+            in {
+                "aguardando_ti",
+                "aguardando_citel",
+            }
+            and r[
+                "dias_sem_interacao"
+            ] is not None
+            and r[
+                "dias_sem_interacao"
+            ]
+            >= CITEL_ALERTA_SEM_INTERACAO_DIAS
+        )
+    ]
+
+    st.markdown(
+        f"""
+        <div class="tv-header">
+            <div>
+                <div class="tv-eyebrow">
+                    Central de Operação • TI Ferpam
+                </div>
+                <div class="tv-title">
+                    📺 Modo TV
+                </div>
+                <div style="margin-top:8px;">
+                    <span class="tv-live-pill">
+                        <span class="tv-dot-live"></span>
+                        Atualização automática a cada
+                        {TV_REFRESH_SECONDS}s
+                    </span>
+                </div>
+            </div>
+            <div class="tv-clock">
+                Última leitura<br>
+                <strong>
+                    {agora_local.strftime("%d/%m/%Y • %H:%M:%S")}
+                </strong>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    k1, k2, k3, k4, k5 = (
+        st.columns(5)
+    )
+
+    with k1:
+        st.metric(
+            "Abertos",
+            abertos,
+        )
+
+    with k2:
+        st.metric(
+            "Em andamento",
+            andamento,
+        )
+
+    with k3:
+        st.metric(
+            "🔵 Citel respondeu",
+            len(citel_aguardando_ti),
+        )
+
+    with k4:
+        st.metric(
+            "🟣 Em Roadmap",
+            len(citel_roadmap),
+        )
+
+    with k5:
+        st.metric(
+            (
+                "⏳ Citel "
+                f"{CITEL_ALERTA_SEM_INTERACAO_DIAS}+ dias"
+            ),
+            len(citel_sem_interacao),
+        )
+
+    st.caption(
+        (
+            "Roadmap é identificado quando a última "
+            "mensagem da própria Citel contém "
+            "'roadmap'. Roadmaps não entram nos "
+            "alertas de resposta pendente."
+        )
+    )
+
+    eventos = list(
+        st.session_state.get(
+            "tv_eventos_recentes",
+            [],
+        )
+    )
+    eventos.reverse()
+
+    if eventos:
+        st.markdown(
+            (
+                '<div class="tv-section-title">'
+                "⚡ Aconteceu agora"
+                "</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+
+        blocos_eventos = []
+
+        for evento in eventos[:6]:
+            tipo = evento.get("tipo")
+
+            if tipo == "novo_chamado":
+                classe = "tv-alert-new"
+
+            elif tipo == "citel_respondeu":
+                classe = "tv-alert-citel"
+
+            elif tipo == "citel_roadmap":
+                classe = "tv-alert-warning"
+
+            else:
+                classe = "tv-alert-warning"
+
+            detectado = pd.to_datetime(
+                evento.get(
+                    "detectado_em"
+                ),
+                errors="coerce",
+                utc=True,
+            )
+
+            detectado_str = ""
+
+            if pd.notna(detectado):
+                detectado_str = (
+                    detectado
+                    .tz_convert(
+                        "America/Araguaina"
+                    )
+                    .strftime("%H:%M")
+                )
+
+            blocos_eventos.append(
+                _html_tv_alerta(
+                    classe,
+                    evento.get("titulo"),
+                    evento.get("detalhe"),
+                    (
+                        "Detectado às "
+                        f"{detectado_str}"
+                        if detectado_str
+                        else ""
+                    ),
+                )
+            )
+
+        _render_lista_tv(
+            blocos_eventos,
+            (
+                "Nenhum evento novo "
+                "detectado nos últimos minutos."
+            ),
+        )
+
+    (
+        col_citel,
+        col_roadmap,
+        col_15d,
+        col_parados,
+    ) = st.columns(4)
+
+    with col_citel:
+        st.markdown(
+            (
+                '<div class="tv-section-title">'
+                "🔵 Citel respondeu"
+                "</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+
+        blocos = []
+
+        for item in (
+            citel_aguardando_ti[:8]
+        ):
+            data_str = "-"
+
+            if pd.notna(
+                item["ultima_data"]
+            ):
+                data_str = (
+                    item["ultima_data"]
+                    .tz_convert(
+                        "America/Araguaina"
+                    )
+                    .strftime(
+                        "%d/%m às %H:%M"
+                    )
+                )
+
+            blocos.append(
+                _html_tv_alerta(
+                    "tv-alert-citel",
+                    (
+                        f"FerPam "
+                        f"#{item['ticket_ferpam']} "
+                        "• Citel "
+                        f"#{item['ticket_citel']}"
+                    ),
+                    (
+                        item.get("titulo")
+                        or "Sem título"
+                    ),
+                    (
+                        "Última resposta: "
+                        f"{data_str} • Técnico: "
+                        f"{item.get('tecnico') or 'Não atribuído'}"
+                    ),
+                )
+            )
+
+        _render_lista_tv(
+            blocos,
+            (
+                "Nenhuma resposta da Citel "
+                "aguardando a TI."
+            ),
+        )
+
+    with col_roadmap:
+        st.markdown(
+            (
+                '<div class="tv-section-title">'
+                "🟣 Em Roadmap"
+                "</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+
+        blocos = []
+
+        for item in citel_roadmap[:8]:
+            data_str = "-"
+
+            if pd.notna(
+                item["ultima_data"]
+            ):
+                data_str = (
+                    item["ultima_data"]
+                    .tz_convert(
+                        "America/Araguaina"
+                    )
+                    .strftime(
+                        "%d/%m às %H:%M"
+                    )
+                )
+
+            blocos.append(
+                _html_tv_alerta(
+                    "tv-alert-warning",
+                    (
+                        f"FerPam "
+                        f"#{item['ticket_ferpam']} "
+                        "• Citel "
+                        f"#{item['ticket_citel']}"
+                    ),
+                    (
+                        item.get("titulo")
+                        or "Sem título"
+                    ),
+                    (
+                        "Roadmap detectado pela "
+                        "última mensagem da Citel • "
+                        f"Última interação: {data_str}"
+                    ),
+                )
+            )
+
+        _render_lista_tv(
+            blocos,
+            (
+                "Nenhum chamado ativo da "
+                "Citel identificado como Roadmap."
+            ),
+        )
+
+    with col_15d:
+        st.markdown(
+            (
+                '<div class="tv-section-title">'
+                "⏳ Citel sem atualização • "
+                f"{CITEL_ALERTA_SEM_INTERACAO_DIAS}+ dias"
+                "</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+
+        blocos = []
+
+        for item in (
+            citel_sem_interacao[:8]
+        ):
+            lado = (
+                "última fala: Citel"
+                if item["estado"]
+                == "aguardando_ti"
+                else "última fala: TI/Ferpam"
+            )
+
+            blocos.append(
+                _html_tv_alerta(
+                    "tv-alert-critical",
+                    (
+                        f"FerPam "
+                        f"#{item['ticket_ferpam']} "
+                        "• "
+                        f"{item['dias_sem_interacao']} dias"
+                    ),
+                    (
+                        item.get("titulo")
+                        or "Sem título"
+                    ),
+                    (
+                        f"Citel "
+                        f"#{item['ticket_citel']} "
+                        f"• {lado} • nenhuma "
+                        "nova interação desde então"
+                    ),
+                )
+            )
+
+        _render_lista_tv(
+            blocos,
+            (
+                "Nenhum chamado da Citel "
+                f"com {CITEL_ALERTA_SEM_INTERACAO_DIAS}+ "
+                "dias sem interação."
+            ),
+        )
+
+    with col_parados:
+        st.markdown(
+            (
+                '<div class="tv-section-title">'
+                "⚠️ Chamados parados • "
+                f"{TV_ALERTA_DIAS}+ dias"
+                "</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+
+        blocos = []
+
+        for item in parados[:8]:
+            blocos.append(
+                _html_tv_alerta(
+                    (
+                        "tv-alert-critical"
+                        if item["dias"] >= 10
+                        else "tv-alert-warning"
+                    ),
+                    (
+                        f"Chamado "
+                        f"#{item['ticket']} "
+                        "• "
+                        f"{item['dias']} dias"
+                    ),
+                    (
+                        item.get("titulo")
+                        or "Sem título"
+                    ),
+                    (
+                        f"{item.get('status') or '-'} "
+                        "• Técnico: "
+                        f"{item.get('tecnico') or 'Não atribuído'}"
+                    ),
+                )
+            )
+
+        _render_lista_tv(
+            blocos,
+            (
+                "Nenhum chamado com "
+                f"{TV_ALERTA_DIAS}+ dias "
+                "sem movimentação datada."
+            ),
+        )
+
+    st.divider()
+
+    st.markdown(
+        (
+            '<div class="tv-section-title">'
+            "🆕 Chamados mais recentes"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+    if df_tv.empty:
+        st.info(
+            "Nenhum chamado disponível."
+        )
+
+    else:
+        recentes = (
+            df_tv[
+                df_tv[
+                    "dt_abertura"
+                ].notna()
+            ]
+            .sort_values(
+                "dt_abertura",
+                ascending=False,
+            )
+            .head(8)
+        )
+
+        cols = st.columns(4)
+
+        for pos, (
+            _,
+            chamado,
+        ) in enumerate(
+            recentes.iterrows()
+        ):
+            with cols[pos % 4]:
+                ticket = str(
+                    chamado.get(
+                        "id_chamado",
+                        "",
+                    ) or ""
+                )
+
+                titulo = _resumo_texto(
+                    chamado.get(
+                        "titulo",
+                        "Sem título",
+                    ),
+                    85,
+                )
+
+                status = str(
+                    chamado.get(
+                        "status",
+                        "",
+                    )
+                    or "Aberto"
+                )
+
+                tecnico = str(
+                    chamado.get(
+                        "tecnico",
+                        "",
+                    )
+                    or "Não atribuído"
+                )
+
+                dt = (
+                    _normalizar_data_timeline(
+                        chamado.get(
+                            "dt_abertura"
+                        )
+                    )
+                )
+
+                dt_str = "-"
+
+                if dt is not None:
+                    dt_str = (
+                        dt.tz_convert(
+                            "America/Araguaina"
+                        )
+                        .strftime(
+                            "%d/%m • %H:%M"
+                        )
+                    )
+
+                st.markdown(
+                    _html_tv_alerta(
+                        "tv-alert-new",
+                        (
+                            f"#{ticket} "
+                            f"• {titulo}"
+                        ),
+                        status,
+                        (
+                            f"{dt_str} "
+                            f"• {tecnico}"
+                        ),
+                    ),
+                    unsafe_allow_html=True,
+                )
+
+    if (
+        total_citel_ativos
+        > TV_MAX_CITEL
+    ):
+        st.caption(
+            (
+                f"⚠️ Existem "
+                f"{total_citel_ativos} "
+                "chamados ativos da Citel. "
+                "O Modo TV consulta no máximo "
+                f"{TV_MAX_CITEL} por ciclo "
+                "para controlar o volume "
+                "de requisições."
+            )
+        )
+
+
+def render_modo_tv():
+    if not st.session_state.get(
+        "autenticado_admin"
+    ):
+        st.error(
+            "⛔ O Modo TV é exclusivo "
+            "para o Admin."
+        )
+        return
+
+    st.markdown(
+        """
+        <style>
+            section[data-testid="stSidebar"] {
+                display: none !important;
+            }
+
+            [data-testid="collapsedControl"] {
+                display: none !important;
+            }
+
+            header[data-testid="stHeader"] {
+                display: none !important;
+            }
+
+            .block-container {
+                padding-top: 1.1rem !important;
+                padding-left: 1.5rem !important;
+                padding-right: 1.5rem !important;
+                max-width: 100% !important;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    _, col_sair = st.columns(
+        [9, 1]
+    )
+
+    with col_sair:
+        if st.button(
+            "← Dashboard",
+            key="btn_sair_modo_tv",
+            use_container_width=True,
+        ):
+            st.session_state.tela = (
+                "dashboard"
+            )
+            st.rerun()
+
+    fragment = getattr(
+        st,
+        "fragment",
+        None,
+    )
+
+    if fragment is None:
+        fragment = getattr(
+            st,
+            "experimental_fragment",
+            None,
+        )
+
+    if fragment is None:
+        st.warning(
+            (
+                "Sua versão do Streamlit "
+                "não possui suporte a fragments. "
+                "O Modo TV está funcionando, "
+                "mas sem atualização automática."
+            )
+        )
+        render_conteudo_modo_tv()
+        return
+
+    @fragment(
+        run_every=TV_REFRESH_SECONDS
+    )
+    def _tv_live_fragment():
+        render_conteudo_modo_tv()
+
+    _tv_live_fragment()
+
+
 # ============================================================
 # TELA DETALHES DO TICKET
 # ============================================================
@@ -2308,6 +3985,20 @@ if st.session_state.tela == "busca":
                         st.write("")
                         st.write("")
                         st.button("👁️ Ver detalhes", key=f"btn_adm_{t_id}_{idx}", on_click=abrir_ticket, args=(t_id,), use_container_width=True)
+
+# ============================================================
+# TELA MODO TV
+# ============================================================
+
+if st.session_state.tela == "tv":
+    if not st.session_state.autenticado_admin:
+        st.session_state.tela = "busca"
+        st.error("⛔ Acesso negado ao Modo TV.")
+        st.stop()
+
+    render_modo_tv()
+    st.stop()
+
 
 # ============================================================
 # TELA DASHBOARD DE INDICADORES
@@ -2941,110 +4632,607 @@ if st.session_state.tela == "dashboard":
         # CENTRAL DE TERCEIROS
         # --------------------------------------------------------
         with sub_terc:
-            st.markdown("### 🌐 Central de Terceiros")
-            base_terc = montar_base_terceiros_admin()
+            st.markdown(
+                "### 🌐 Central de Terceiros"
+            )
+
+            base_terc = (
+                montar_base_terceiros_admin()
+            )
+
             if base_terc.empty:
-                st.info("Nenhum vínculo com terceiros foi encontrado.")
+                st.info(
+                    "Nenhum vínculo com terceiros foi encontrado."
+                )
+
             else:
-                ativos_terc = base_terc[base_terc["grupo_status"] != "Concluídos"].copy()
-                roadmap_mask = base_terc["roadmap"].astype(str).str.casefold().isin({"sim", "true", "1", "yes", "x"})
-                t1, t2, t3, t4 = st.columns(4)
-                with t1:
-                    st.metric("Vínculos com terceiros", len(base_terc))
-                with t2:
-                    st.metric("Chamados ainda ativos", len(ativos_terc))
-                with t3:
-                    st.metric("Empresas terceiras", base_terc["nome_terceiro"].nunique())
-                with t4:
-                    st.metric("Roadmaps marcados", int(roadmap_mask.sum()))
-
-                terc_counts = base_terc["nome_terceiro"].replace("", "Não informado").value_counts().reset_index()
-                terc_counts.columns = ["Terceiro", "Quantidade"]
-                fig_terc = px.bar(terc_counts, x="Quantidade", y="Terceiro", orientation="h")
-                fig_terc = aplicar_layout_plotly(fig_terc)
-                st.plotly_chart(fig_terc, use_container_width=True)
-
-                st.markdown("#### Situação dos chamados vinculados")
-                tabela_terc = base_terc[[
-                    "ticket_ferpam", "status_ferpam", "nome_terceiro", "id_ticket", "tecnico", "departamento"
-                ]].copy()
-                tabela_terc.columns = ["Ticket Ferpam", "Status Ferpam", "Terceiro", "Ticket Terceiro", "Técnico", "Departamento"]
-                st.dataframe(tabela_terc, use_container_width=True, hide_index=True)
-
-                st.divider()
-                st.markdown("#### 🔄 Situação ao vivo da Citel")
-                st.caption("A consulta ao portal da Citel só acontece quando você aperta o botão abaixo, evitando dezenas de requisições a cada atualização do dashboard.")
-
-                citel_ativos = ativos_terc[
-                    ativos_terc["nome_terceiro"].str.contains("citel", case=False, na=False)
-                    | ativos_terc["link"].str.contains("citelsoftware", case=False, na=False)
+                ativos_terc = base_terc[
+                    base_terc[
+                        "grupo_status"
+                    ] != "Concluídos"
                 ].copy()
 
-                col_live1, col_live2 = st.columns([3, 7])
+                citel_ativos = ativos_terc[
+                    ativos_terc[
+                        "nome_terceiro"
+                    ].str.contains(
+                        "citel",
+                        case=False,
+                        na=False,
+                    )
+                    |
+                    ativos_terc[
+                        "link"
+                    ].str.contains(
+                        "citelsoftware",
+                        case=False,
+                        na=False,
+                    )
+                ].copy()
+
+                t1, t2, t3, t4 = (
+                    st.columns(4)
+                )
+
+                with t1:
+                    st.metric(
+                        "Vínculos com terceiros",
+                        len(base_terc),
+                    )
+
+                with t2:
+                    st.metric(
+                        "Chamados ainda ativos",
+                        len(ativos_terc),
+                    )
+
+                with t3:
+                    st.metric(
+                        "Empresas terceiras",
+                        base_terc[
+                            "nome_terceiro"
+                        ].nunique(),
+                    )
+
+                with t4:
+                    st.metric(
+                        "Chamados ativos da Citel",
+                        len(citel_ativos),
+                    )
+
+                terc_counts = (
+                    base_terc[
+                        "nome_terceiro"
+                    ]
+                    .replace(
+                        "",
+                        "Não informado",
+                    )
+                    .value_counts()
+                    .reset_index()
+                )
+
+                terc_counts.columns = [
+                    "Terceiro",
+                    "Quantidade",
+                ]
+
+                fig_terc = px.bar(
+                    terc_counts,
+                    x="Quantidade",
+                    y="Terceiro",
+                    orientation="h",
+                )
+
+                fig_terc = (
+                    aplicar_layout_plotly(
+                        fig_terc
+                    )
+                )
+
+                st.plotly_chart(
+                    fig_terc,
+                    use_container_width=True,
+                )
+
+                st.markdown(
+                    "#### Situação dos chamados vinculados"
+                )
+
+                tabela_terc = base_terc[[
+                    "ticket_ferpam",
+                    "status_ferpam",
+                    "nome_terceiro",
+                    "id_ticket",
+                    "tecnico",
+                    "departamento",
+                ]].copy()
+
+                tabela_terc.columns = [
+                    "Ticket Ferpam",
+                    "Status Ferpam",
+                    "Terceiro",
+                    "Ticket Terceiro",
+                    "Técnico",
+                    "Departamento",
+                ]
+
+                st.dataframe(
+                    tabela_terc,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                st.divider()
+
+                st.markdown(
+                    "#### 🔄 Situação ao vivo da Citel"
+                )
+
+                st.caption(
+                    (
+                        "Roadmap é identificado pela última "
+                        "mensagem da própria Citel. "
+                        "Se essa mensagem contém 'roadmap', "
+                        "o ticket fica separado e não entra "
+                        "como resposta pendente."
+                    )
+                )
+
+                col_live1, col_live2 = (
+                    st.columns([3, 7])
+                )
+
                 with col_live1:
-                    atualizar_live = st.button("🔄 Consultar Citel agora", type="primary", use_container_width=True, key="btn_central_citel")
+                    atualizar_live = (
+                        st.button(
+                            "🔄 Consultar Citel agora",
+                            type="primary",
+                            use_container_width=True,
+                            key="btn_central_citel",
+                        )
+                    )
+
                 with col_live2:
-                    st.caption(f"{len(citel_ativos)} chamado(s) ativo(s) da Citel encontrado(s).")
+                    st.caption(
+                        (
+                            f"{len(citel_ativos)} "
+                            "chamado(s) ativo(s) "
+                            "da Citel encontrado(s)."
+                        )
+                    )
 
                 if atualizar_live:
                     registrar_auditoria_seguro(
                         "ATUALIZAR_CENTRAL_TERCEIROS",
-                        detalhes=f"Consulta ao vivo de {len(citel_ativos)} vínculos ativos da Citel.",
+                        detalhes=(
+                            "Consulta ao vivo de "
+                            f"{len(citel_ativos)} "
+                            "vínculos ativos da Citel."
+                        ),
                     )
+
                     resultados_live = []
                     limite_live = 60
-                    for _, item in citel_ativos.head(limite_live).iterrows():
-                        ticket_citel = extrair_id_ticket_citel(item.get("link", ""), item.get("id_ticket", ""))
-                        situacao = consultar_vez_resposta_citel(ticket_citel)
-                        resultados_live.append({
-                            "Ticket Ferpam": item.get("ticket_ferpam", ""),
-                            "Ticket Citel": ticket_citel or "-",
-                            "Título": item.get("titulo", ""),
-                            "Técnico": item.get("tecnico", ""),
-                            "Estado": situacao.get("titulo") if situacao.get("ok") else "Não foi possível consultar",
-                            "estado_codigo": situacao.get("estado", "indisponivel"),
-                            "Última interação": formatar_data_citel(situacao.get("ultima_data")) or "-",
-                        })
-                    st.session_state.central_terceiros_live = resultados_live
-                    if len(citel_ativos) > limite_live:
-                        st.warning(f"Por segurança, a atualização ao vivo foi limitada aos primeiros {limite_live} chamados ativos.")
+                    agora_live = pd.Timestamp.now(
+                        tz="UTC"
+                    )
 
-                live = st.session_state.get("central_terceiros_live", [])
+                    for _, item in (
+                        citel_ativos
+                        .head(limite_live)
+                        .iterrows()
+                    ):
+                        ticket_citel = (
+                            extrair_id_ticket_citel(
+                                item.get(
+                                    "link",
+                                    "",
+                                ),
+                                item.get(
+                                    "id_ticket",
+                                    "",
+                                ),
+                            )
+                        )
+
+                        situacao = (
+                            consultar_vez_resposta_citel(
+                                ticket_citel
+                            )
+                        )
+
+                        ultima_dt = pd.to_datetime(
+                            situacao.get(
+                                "ultima_data"
+                            ),
+                            errors="coerce",
+                            utc=True,
+                        )
+
+                        dias_sem_interacao = None
+
+                        if pd.notna(
+                            ultima_dt
+                        ):
+                            dias_sem_interacao = int(
+                                max(
+                                    0,
+                                    (
+                                        agora_live
+                                        - ultima_dt
+                                    ).total_seconds()
+                                    // 86400,
+                                )
+                            )
+
+                        estado_codigo = (
+                            situacao.get(
+                                "estado",
+                                "indisponivel",
+                            )
+                            if situacao.get("ok")
+                            else "indisponivel"
+                        )
+
+                        resultados_live.append({
+                            "Ticket Ferpam": item.get(
+                                "ticket_ferpam",
+                                "",
+                            ),
+                            "Ticket Citel": (
+                                ticket_citel
+                                or "-"
+                            ),
+                            "Título": item.get(
+                                "titulo",
+                                "",
+                            ),
+                            "Técnico": item.get(
+                                "tecnico",
+                                "",
+                            ),
+                            "Estado": (
+                                situacao.get(
+                                    "titulo"
+                                )
+                                if situacao.get("ok")
+                                else "Não foi possível consultar"
+                            ),
+                            "estado_codigo": estado_codigo,
+                            "Última interação": (
+                                formatar_data_citel(
+                                    situacao.get(
+                                        "ultima_data"
+                                    )
+                                )
+                                or "-"
+                            ),
+                            "dias_sem_interacao": (
+                                dias_sem_interacao
+                            ),
+                        })
+
+                    st.session_state[
+                        "central_terceiros_live_v3"
+                    ] = resultados_live
+
+                    if (
+                        len(citel_ativos)
+                        > limite_live
+                    ):
+                        st.warning(
+                            (
+                                "Por segurança, a atualização "
+                                "ao vivo foi limitada aos "
+                                f"primeiros {limite_live} "
+                                "chamados ativos."
+                            )
+                        )
+
+                live = st.session_state.get(
+                    "central_terceiros_live_v3",
+                    [],
+                )
+
                 if live:
-                    live_df = pd.DataFrame(live)
-                    aguardando_ti = live_df[live_df["estado_codigo"] == "aguardando_ti"]
-                    lc1, lc2, lc3 = st.columns(3)
+                    live_df = pd.DataFrame(
+                        live
+                    )
+
+                    aguardando_ti = live_df[
+                        live_df[
+                            "estado_codigo"
+                        ] == "aguardando_ti"
+                    ]
+
+                    aguardando_citel = live_df[
+                        live_df[
+                            "estado_codigo"
+                        ] == "aguardando_citel"
+                    ]
+
+                    roadmaps_live = live_df[
+                        live_df[
+                            "estado_codigo"
+                        ] == "roadmap"
+                    ]
+
+                    sem_interacao_15 = live_df[
+                        (
+                            live_df[
+                                "estado_codigo"
+                            ].isin([
+                                "aguardando_ti",
+                                "aguardando_citel",
+                            ])
+                        )
+                        &
+                        (
+                            pd.to_numeric(
+                                live_df[
+                                    "dias_sem_interacao"
+                                ],
+                                errors="coerce",
+                            )
+                            >= 15
+                        )
+                    ]
+
+                    indisponiveis = live_df[
+                        ~live_df[
+                            "estado_codigo"
+                        ].isin([
+                            "aguardando_ti",
+                            "aguardando_citel",
+                            "roadmap",
+                        ])
+                    ]
+
+                    (
+                        lc1,
+                        lc2,
+                        lc3,
+                        lc4,
+                        lc5,
+                    ) = st.columns(5)
+
                     with lc1:
-                        st.metric("Citel respondeu / aguardando TI", len(aguardando_ti))
+                        st.metric(
+                            "Citel respondeu / aguardando TI",
+                            len(aguardando_ti),
+                        )
+
                     with lc2:
-                        st.metric("Aguardando Citel", int((live_df["estado_codigo"] == "aguardando_citel").sum()))
+                        st.metric(
+                            "Aguardando Citel",
+                            len(aguardando_citel),
+                        )
+
                     with lc3:
-                        st.metric("Consulta indisponível", int((~live_df["estado_codigo"].isin(["aguardando_ti", "aguardando_citel"])).sum()))
+                        st.metric(
+                            "🟣 Em Roadmap",
+                            len(roadmaps_live),
+                        )
+
+                    with lc4:
+                        st.metric(
+                            "⏳ 15+ dias sem atualização",
+                            len(sem_interacao_15),
+                        )
+
+                    with lc5:
+                        st.metric(
+                            "Consulta indisponível",
+                            len(indisponiveis),
+                        )
+
+                    tabela_live = live_df.copy()
+
+                    tabela_live[
+                        "Dias sem interação"
+                    ] = tabela_live[
+                        "dias_sem_interacao"
+                    ]
+
+                    tabela_live = (
+                        tabela_live.drop(
+                            columns=[
+                                "estado_codigo",
+                                "dias_sem_interacao",
+                            ]
+                        )
+                    )
 
                     st.dataframe(
-                        live_df.drop(columns=["estado_codigo"]),
+                        tabela_live,
                         use_container_width=True,
                         hide_index=True,
                     )
 
-                    if not aguardando_ti.empty:
-                        st.markdown("##### 🔵 Citel respondeu — chamados que precisam da TI")
-                        for idx_live, item_live in aguardando_ti.iterrows():
-                            with st.container(border=True):
-                                c_l1, c_l2 = st.columns([8, 2])
+                    if not roadmaps_live.empty:
+                        st.markdown(
+                            "##### 🟣 Chamados em Roadmap"
+                        )
+
+                        st.caption(
+                            (
+                                "Esses chamados não entram em "
+                                "'Aguardando Citel' nem em "
+                                "'Aguardando TI'."
+                            )
+                        )
+
+                        for (
+                            idx_live,
+                            item_live,
+                        ) in (
+                            roadmaps_live.iterrows()
+                        ):
+                            with st.container(
+                                border=True
+                            ):
+                                c_l1, c_l2 = (
+                                    st.columns(
+                                        [8, 2]
+                                    )
+                                )
+
                                 with c_l1:
-                                    st.markdown(f"**🎫 Ferpam #{item_live['Ticket Ferpam']} | Citel #{item_live['Ticket Citel']}**")
-                                    st.write(item_live.get("Título") or "Sem título")
-                                    st.caption(f"Técnico: {item_live.get('Técnico') or 'Não atribuído'} • Última interação: {item_live.get('Última interação')}")
+                                    st.markdown(
+                                        (
+                                            "**🟣 Ferpam "
+                                            f"#{item_live['Ticket Ferpam']} "
+                                            "| Citel "
+                                            f"#{item_live['Ticket Citel']}**"
+                                        )
+                                    )
+
+                                    st.write(
+                                        item_live.get(
+                                            "Título"
+                                        )
+                                        or "Sem título"
+                                    )
+
+                                    st.caption(
+                                        (
+                                            "Roadmap detectado pela "
+                                            "última mensagem da Citel "
+                                            "• Última interação: "
+                                            f"{item_live.get('Última interação')}"
+                                        )
+                                    )
+
                                 with c_l2:
-                                    if item_live["Ticket Ferpam"]:
+                                    if item_live[
+                                        "Ticket Ferpam"
+                                    ]:
                                         st.button(
                                             "👁️ Abrir",
-                                            key=f"btn_live_abrir_{idx_live}_{item_live['Ticket Ferpam']}",
+                                            key=(
+                                                "btn_live_roadmap_"
+                                                f"{idx_live}_"
+                                                f"{item_live['Ticket Ferpam']}"
+                                            ),
                                             on_click=abrir_ticket,
-                                            args=(item_live["Ticket Ferpam"],),
+                                            args=(
+                                                item_live[
+                                                    "Ticket Ferpam"
+                                                ],
+                                            ),
                                             use_container_width=True,
                                         )
+
+                    if not aguardando_ti.empty:
+                        st.markdown(
+                            (
+                                "##### 🔵 Citel respondeu — "
+                                "chamados que precisam da TI"
+                            )
+                        )
+
+                        for (
+                            idx_live,
+                            item_live,
+                        ) in (
+                            aguardando_ti.iterrows()
+                        ):
+                            with st.container(
+                                border=True
+                            ):
+                                c_l1, c_l2 = (
+                                    st.columns(
+                                        [8, 2]
+                                    )
+                                )
+
+                                with c_l1:
+                                    st.markdown(
+                                        (
+                                            "**🎫 Ferpam "
+                                            f"#{item_live['Ticket Ferpam']} "
+                                            "| Citel "
+                                            f"#{item_live['Ticket Citel']}**"
+                                        )
+                                    )
+
+                                    st.write(
+                                        item_live.get(
+                                            "Título"
+                                        )
+                                        or "Sem título"
+                                    )
+
+                                    st.caption(
+                                        (
+                                            "Técnico: "
+                                            f"{item_live.get('Técnico') or 'Não atribuído'} "
+                                            "• Última interação: "
+                                            f"{item_live.get('Última interação')}"
+                                        )
+                                    )
+
+                                with c_l2:
+                                    if item_live[
+                                        "Ticket Ferpam"
+                                    ]:
+                                        st.button(
+                                            "👁️ Abrir",
+                                            key=(
+                                                "btn_live_abrir_"
+                                                f"{idx_live}_"
+                                                f"{item_live['Ticket Ferpam']}"
+                                            ),
+                                            on_click=abrir_ticket,
+                                            args=(
+                                                item_live[
+                                                    "Ticket Ferpam"
+                                                ],
+                                            ),
+                                            use_container_width=True,
+                                        )
+
+                    if not sem_interacao_15.empty:
+                        st.markdown(
+                            (
+                                "##### ⏳ Chamados da Citel "
+                                "há 15+ dias sem nenhuma interação"
+                            )
+                        )
+
+                        st.caption(
+                            (
+                                "Aqui entram tickets em que nem "
+                                "a Citel nem a TI/Ferpam enviaram "
+                                "nova mensagem pública há pelo "
+                                "menos 15 dias. Roadmaps são ignorados."
+                            )
+                        )
+
+                        for (
+                            idx_live,
+                            item_live,
+                        ) in (
+                            sem_interacao_15.iterrows()
+                        ):
+                            dias = int(
+                                item_live.get(
+                                    "dias_sem_interacao"
+                                )
+                                or 0
+                            )
+
+                            st.warning(
+                                (
+                                    f"🎫 Ferpam "
+                                    f"#{item_live['Ticket Ferpam']} "
+                                    f"| Citel "
+                                    f"#{item_live['Ticket Citel']} "
+                                    f"— {dias} dias sem interação "
+                                    f"— {item_live.get('Título') or 'Sem título'}"
+                                )
+                            )
 
         # --------------------------------------------------------
         # AUDITORIA
