@@ -3100,6 +3100,83 @@ def _render_lista_tv(
         )
 
 
+def _normalizar_snapshot_citel_tv(resultados, agora_utc):
+    """
+    Recalcula apenas o número de dias usando o último snapshot já salvo.
+    Não faz nenhuma chamada ao portal da Citel.
+    """
+    saida = []
+
+    for item in list(resultados or []):
+        registro = dict(item)
+
+        ultima_data = pd.to_datetime(
+            registro.get("ultima_data"),
+            errors="coerce",
+            utc=True,
+        )
+
+        dias_sem_interacao = None
+
+        if pd.notna(ultima_data):
+            dias_sem_interacao = int(
+                max(
+                    0,
+                    (
+                        agora_utc - ultima_data
+                    ).total_seconds() // 86400,
+                )
+            )
+
+        registro["ultima_data"] = ultima_data
+        registro["dias_sem_interacao"] = dias_sem_interacao
+        saida.append(registro)
+
+    return saida
+
+
+def _atualizar_snapshot_citel_tv(df_chamados, agora_utc):
+    """
+    Atualização MANUAL da Citel.
+
+    Esta função é a única chamada pelo Modo TV que consulta o portal externo.
+    O refresh automático de 60 segundos não passa por aqui.
+    """
+    # A aba terceiros só precisa ser atualizada quando o Admin pede
+    # uma nova leitura da Citel.
+    df_terc_atual = carregar_dados_terceiros()
+
+    # Força leitura nova do estado externo quando o botão é pressionado.
+    try:
+        consultar_vez_resposta_citel.clear()
+    except Exception:
+        pass
+
+    resultados, total_ativos = _processar_citel_tv(
+        df_chamados,
+        df_terc_atual,
+        agora_utc,
+    )
+
+    agora_local = agora_utc.tz_convert(
+        "America/Araguaina"
+    )
+
+    st.session_state["tv_citel_resultados_manual"] = resultados
+    st.session_state["tv_citel_total_ativos_manual"] = total_ativos
+    st.session_state["tv_citel_atualizado_em"] = agora_local.isoformat()
+
+    registrar_auditoria_seguro(
+        "ATUALIZAR_CITEL_MODO_TV",
+        detalhes=(
+            f"Consulta manual do Modo TV realizada para "
+            f"{total_ativos} chamado(s) ativo(s) da Citel."
+        ),
+    )
+
+    return resultados, total_ativos
+
+
 def render_conteudo_modo_tv():
     agora_utc = pd.Timestamp.now(
         tz="UTC"
@@ -3109,29 +3186,22 @@ def render_conteudo_modo_tv():
         "America/Araguaina"
     )
 
-    # As funções abaixo já usam cache curto.
-    # O Modo TV não escreve em nenhum chamado externo.
+    # ========================================================
+    # REFRESH AUTOMÁTICO RÁPIDO
+    # ========================================================
+    # Aqui carregamos SOMENTE a base interna de chamados.
+    # Não consultamos a API da Citel e não recarregamos a aba terceiros.
     df_tv = carregar_dados()
-    df_terc_tv = (
-        carregar_dados_terceiros()
-    )
 
     _detectar_novos_chamados_tv(
         df_tv
     )
 
-    (
-        citel_resultados,
-        total_citel_ativos,
-    ) = _processar_citel_tv(
-        df_tv,
-        df_terc_tv,
-        agora_utc,
-    )
-
+    # Para o alerta interno de chamados parados, usamos as datas
+    # do próprio chamado. Isso mantém o refresh leve.
     parados = _chamados_parados_tv(
         df_tv,
-        df_terc_tv,
+        pd.DataFrame(),
         agora_utc,
     )
 
@@ -3174,42 +3244,9 @@ def render_conteudo_modo_tv():
         else 0
     )
 
-    citel_aguardando_ti = [
-        r
-        for r in citel_resultados
-        if r["estado"]
-        == "aguardando_ti"
-    ]
-
-    citel_roadmap = [
-        r
-        for r in citel_resultados
-        if r["estado"] == "roadmap"
-    ]
-
-    # Sem interação significa:
-    # nem Citel nem Ferpam/TI escreveram há N dias.
-    # Roadmaps ficam FORA deste alerta.
-    citel_sem_interacao = [
-        r
-        for r in citel_resultados
-        if (
-            r["estado"] != "roadmap"
-            and r["estado"]
-            in {
-                "aguardando_ti",
-                "aguardando_citel",
-            }
-            and r[
-                "dias_sem_interacao"
-            ] is not None
-            and r[
-                "dias_sem_interacao"
-            ]
-            >= CITEL_ALERTA_SEM_INTERACAO_DIAS
-        )
-    ]
-
+    # ========================================================
+    # CABEÇALHO
+    # ========================================================
     st.markdown(
         f"""
         <div class="tv-header">
@@ -3223,13 +3260,13 @@ def render_conteudo_modo_tv():
                 <div style="margin-top:8px;">
                     <span class="tv-live-pill">
                         <span class="tv-dot-live"></span>
-                        Atualização automática a cada
+                        Chamados internos atualizam a cada
                         {TV_REFRESH_SECONDS}s
                     </span>
                 </div>
             </div>
             <div class="tv-clock">
-                Última leitura<br>
+                Última leitura interna<br>
                 <strong>
                     {agora_local.strftime("%d/%m/%Y • %H:%M:%S")}
                 </strong>
@@ -3239,9 +3276,125 @@ def render_conteudo_modo_tv():
         unsafe_allow_html=True,
     )
 
-    k1, k2, k3, k4, k5 = (
-        st.columns(5)
+    # ========================================================
+    # CITEL MANUAL
+    # ========================================================
+    col_citel_btn, col_citel_info = st.columns(
+        [2.2, 7.8]
     )
+
+    with col_citel_btn:
+        atualizar_citel = st.button(
+            "🔄 Atualizar Citel",
+            key="btn_tv_atualizar_citel_manual",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if atualizar_citel:
+        with st.spinner(
+            "Consultando os chamados ativos da Citel..."
+        ):
+            _atualizar_snapshot_citel_tv(
+                df_tv,
+                agora_utc,
+            )
+
+        st.toast(
+            "Situação da Citel atualizada.",
+            icon="✅",
+        )
+
+    snapshot_bruto = st.session_state.get(
+        "tv_citel_resultados_manual",
+        [],
+    )
+
+    citel_resultados = _normalizar_snapshot_citel_tv(
+        snapshot_bruto,
+        agora_utc,
+    )
+
+    total_citel_ativos = int(
+        st.session_state.get(
+            "tv_citel_total_ativos_manual",
+            0,
+        )
+        or 0
+    )
+
+    citel_atualizado_em = pd.to_datetime(
+        st.session_state.get(
+            "tv_citel_atualizado_em"
+        ),
+        errors="coerce",
+    )
+
+    citel_consultado = bool(
+        snapshot_bruto
+        or st.session_state.get(
+            "tv_citel_atualizado_em"
+        )
+    )
+
+    with col_citel_info:
+        if citel_consultado and pd.notna(
+            citel_atualizado_em
+        ):
+            st.caption(
+                "Citel fora do refresh automático • "
+                f"última consulta manual: "
+                f"{citel_atualizado_em.strftime('%d/%m/%Y às %H:%M:%S')} "
+                f"• {total_citel_ativos} chamado(s) ativo(s) consultado(s)"
+            )
+        else:
+            st.caption(
+                "A Citel não é consultada automaticamente. "
+                "Clique em **Atualizar Citel** quando quiser buscar "
+                "respostas, Roadmaps e chamados há 15+ dias sem interação."
+            )
+
+    # ========================================================
+    # ESTADOS DO ÚLTIMO SNAPSHOT DA CITEL
+    # ========================================================
+    citel_aguardando_ti = [
+        r
+        for r in citel_resultados
+        if r.get("estado")
+        == "aguardando_ti"
+    ]
+
+    citel_roadmap = [
+        r
+        for r in citel_resultados
+        if r.get("estado")
+        == "roadmap"
+    ]
+
+    citel_sem_interacao = [
+        r
+        for r in citel_resultados
+        if (
+            r.get("estado") != "roadmap"
+            and r.get("estado")
+            in {
+                "aguardando_ti",
+                "aguardando_citel",
+            }
+            and r.get(
+                "dias_sem_interacao"
+            ) is not None
+            and r.get(
+                "dias_sem_interacao"
+            )
+            >= CITEL_ALERTA_SEM_INTERACAO_DIAS
+        )
+    ]
+
+    # ========================================================
+    # KPIs
+    # ========================================================
+    k1, k2, k3, k4, k5 = st.columns(5)
 
     with k1:
         st.metric(
@@ -3258,13 +3411,21 @@ def render_conteudo_modo_tv():
     with k3:
         st.metric(
             "🔵 Citel respondeu",
-            len(citel_aguardando_ti),
+            (
+                len(citel_aguardando_ti)
+                if citel_consultado
+                else "—"
+            ),
         )
 
     with k4:
         st.metric(
             "🟣 Em Roadmap",
-            len(citel_roadmap),
+            (
+                len(citel_roadmap)
+                if citel_consultado
+                else "—"
+            ),
         )
 
     with k5:
@@ -3273,18 +3434,23 @@ def render_conteudo_modo_tv():
                 "⏳ Citel "
                 f"{CITEL_ALERTA_SEM_INTERACAO_DIAS}+ dias"
             ),
-            len(citel_sem_interacao),
+            (
+                len(citel_sem_interacao)
+                if citel_consultado
+                else "—"
+            ),
         )
 
     st.caption(
         (
-            "Roadmap é identificado quando a última "
-            "mensagem da própria Citel contém "
-            "'roadmap'. Roadmaps não entram nos "
-            "alertas de resposta pendente."
+            "Os dois primeiros indicadores são atualizados automaticamente. "
+            "Os indicadores da Citel usam somente a última consulta manual."
         )
     )
 
+    # ========================================================
+    # ACONTECEU AGORA
+    # ========================================================
     eventos = list(
         st.session_state.get(
             "tv_eventos_recentes",
@@ -3361,6 +3527,9 @@ def render_conteudo_modo_tv():
             ),
         )
 
+    # ========================================================
+    # QUADROS OPERACIONAIS
+    # ========================================================
     (
         col_citel,
         col_roadmap,
@@ -3378,54 +3547,60 @@ def render_conteudo_modo_tv():
             unsafe_allow_html=True,
         )
 
-        blocos = []
-
-        for item in (
-            citel_aguardando_ti[:8]
-        ):
-            data_str = "-"
-
-            if pd.notna(
-                item["ultima_data"]
-            ):
-                data_str = (
-                    item["ultima_data"]
-                    .tz_convert(
-                        "America/Araguaina"
-                    )
-                    .strftime(
-                        "%d/%m às %H:%M"
-                    )
-                )
-
-            blocos.append(
-                _html_tv_alerta(
-                    "tv-alert-citel",
-                    (
-                        f"FerPam "
-                        f"#{item['ticket_ferpam']} "
-                        "• Citel "
-                        f"#{item['ticket_citel']}"
-                    ),
-                    (
-                        item.get("titulo")
-                        or "Sem título"
-                    ),
-                    (
-                        "Última resposta: "
-                        f"{data_str} • Técnico: "
-                        f"{item.get('tecnico') or 'Não atribuído'}"
-                    ),
-                )
+        if not citel_consultado:
+            _render_lista_tv(
+                [],
+                "Clique em Atualizar Citel para consultar.",
             )
+        else:
+            blocos = []
 
-        _render_lista_tv(
-            blocos,
-            (
-                "Nenhuma resposta da Citel "
-                "aguardando a TI."
-            ),
-        )
+            for item in (
+                citel_aguardando_ti[:8]
+            ):
+                data_str = "-"
+
+                if pd.notna(
+                    item.get("ultima_data")
+                ):
+                    data_str = (
+                        item["ultima_data"]
+                        .tz_convert(
+                            "America/Araguaina"
+                        )
+                        .strftime(
+                            "%d/%m às %H:%M"
+                        )
+                    )
+
+                blocos.append(
+                    _html_tv_alerta(
+                        "tv-alert-citel",
+                        (
+                            f"FerPam "
+                            f"#{item['ticket_ferpam']} "
+                            "• Citel "
+                            f"#{item['ticket_citel']}"
+                        ),
+                        (
+                            item.get("titulo")
+                            or "Sem título"
+                        ),
+                        (
+                            "Última resposta: "
+                            f"{data_str} • Técnico: "
+                            f"{item.get('tecnico') or 'Não atribuído'}"
+                        ),
+                    )
+                )
+
+            _render_lista_tv(
+                blocos,
+                (
+                    "Nenhuma resposta da Citel "
+                    "aguardando a TI."
+                ),
+            )
 
     with col_roadmap:
         st.markdown(
@@ -3437,52 +3612,58 @@ def render_conteudo_modo_tv():
             unsafe_allow_html=True,
         )
 
-        blocos = []
-
-        for item in citel_roadmap[:8]:
-            data_str = "-"
-
-            if pd.notna(
-                item["ultima_data"]
-            ):
-                data_str = (
-                    item["ultima_data"]
-                    .tz_convert(
-                        "America/Araguaina"
-                    )
-                    .strftime(
-                        "%d/%m às %H:%M"
-                    )
-                )
-
-            blocos.append(
-                _html_tv_alerta(
-                    "tv-alert-warning",
-                    (
-                        f"FerPam "
-                        f"#{item['ticket_ferpam']} "
-                        "• Citel "
-                        f"#{item['ticket_citel']}"
-                    ),
-                    (
-                        item.get("titulo")
-                        or "Sem título"
-                    ),
-                    (
-                        "Roadmap detectado pela "
-                        "última mensagem da Citel • "
-                        f"Última interação: {data_str}"
-                    ),
-                )
+        if not citel_consultado:
+            _render_lista_tv(
+                [],
+                "Clique em Atualizar Citel para consultar.",
             )
+        else:
+            blocos = []
 
-        _render_lista_tv(
-            blocos,
-            (
-                "Nenhum chamado ativo da "
-                "Citel identificado como Roadmap."
-            ),
-        )
+            for item in citel_roadmap[:8]:
+                data_str = "-"
+
+                if pd.notna(
+                    item.get("ultima_data")
+                ):
+                    data_str = (
+                        item["ultima_data"]
+                        .tz_convert(
+                            "America/Araguaina"
+                        )
+                        .strftime(
+                            "%d/%m às %H:%M"
+                        )
+                    )
+
+                blocos.append(
+                    _html_tv_alerta(
+                        "tv-alert-warning",
+                        (
+                            f"FerPam "
+                            f"#{item['ticket_ferpam']} "
+                            "• Citel "
+                            f"#{item['ticket_citel']}"
+                        ),
+                        (
+                            item.get("titulo")
+                            or "Sem título"
+                        ),
+                        (
+                            "Roadmap detectado pela "
+                            "última mensagem da Citel • "
+                            f"Última interação: {data_str}"
+                        ),
+                    )
+                )
+
+            _render_lista_tv(
+                blocos,
+                (
+                    "Nenhum chamado ativo da "
+                    "Citel identificado como Roadmap."
+                ),
+            )
 
     with col_15d:
         st.markdown(
@@ -3495,48 +3676,54 @@ def render_conteudo_modo_tv():
             unsafe_allow_html=True,
         )
 
-        blocos = []
-
-        for item in (
-            citel_sem_interacao[:8]
-        ):
-            lado = (
-                "última fala: Citel"
-                if item["estado"]
-                == "aguardando_ti"
-                else "última fala: TI/Ferpam"
+        if not citel_consultado:
+            _render_lista_tv(
+                [],
+                "Clique em Atualizar Citel para consultar.",
             )
+        else:
+            blocos = []
 
-            blocos.append(
-                _html_tv_alerta(
-                    "tv-alert-critical",
-                    (
-                        f"FerPam "
-                        f"#{item['ticket_ferpam']} "
-                        "• "
-                        f"{item['dias_sem_interacao']} dias"
-                    ),
-                    (
-                        item.get("titulo")
-                        or "Sem título"
-                    ),
-                    (
-                        f"Citel "
-                        f"#{item['ticket_citel']} "
-                        f"• {lado} • nenhuma "
-                        "nova interação desde então"
-                    ),
+            for item in (
+                citel_sem_interacao[:8]
+            ):
+                lado = (
+                    "última fala: Citel"
+                    if item.get("estado")
+                    == "aguardando_ti"
+                    else "última fala: TI/Ferpam"
                 )
-            )
 
-        _render_lista_tv(
-            blocos,
-            (
-                "Nenhum chamado da Citel "
-                f"com {CITEL_ALERTA_SEM_INTERACAO_DIAS}+ "
-                "dias sem interação."
-            ),
-        )
+                blocos.append(
+                    _html_tv_alerta(
+                        "tv-alert-critical",
+                        (
+                            f"FerPam "
+                            f"#{item['ticket_ferpam']} "
+                            "• "
+                            f"{item['dias_sem_interacao']} dias"
+                        ),
+                        (
+                            item.get("titulo")
+                            or "Sem título"
+                        ),
+                        (
+                            f"Citel "
+                            f"#{item['ticket_citel']} "
+                            f"• {lado} • nenhuma "
+                            "nova interação desde então"
+                        ),
+                    )
+                )
+
+            _render_lista_tv(
+                blocos,
+                (
+                    "Nenhum chamado da Citel "
+                    f"com {CITEL_ALERTA_SEM_INTERACAO_DIAS}+ "
+                    "dias sem interação."
+                ),
+            )
 
     with col_parados:
         st.markdown(
@@ -3586,6 +3773,9 @@ def render_conteudo_modo_tv():
             ),
         )
 
+    # ========================================================
+    # CHAMADOS RECENTES
+    # ========================================================
     st.divider()
 
     st.markdown(
@@ -3693,20 +3883,19 @@ def render_conteudo_modo_tv():
                 )
 
     if (
-        total_citel_ativos
-        > TV_MAX_CITEL
+        citel_consultado
+        and total_citel_ativos > TV_MAX_CITEL
     ):
         st.caption(
             (
                 f"⚠️ Existem "
                 f"{total_citel_ativos} "
                 "chamados ativos da Citel. "
-                "O Modo TV consulta no máximo "
-                f"{TV_MAX_CITEL} por ciclo "
-                "para controlar o volume "
-                "de requisições."
+                "A consulta manual processa no máximo "
+                f"{TV_MAX_CITEL} por vez."
             )
         )
+
 
 
 def render_modo_tv():
