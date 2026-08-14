@@ -4,6 +4,10 @@ import html
 import hmac
 import unicodedata
 import uuid
+import io
+import math
+import struct
+import wave
 from difflib import SequenceMatcher
 
 import pandas as pd
@@ -2816,9 +2820,135 @@ def _adicionar_evento_tv(
     )
 
 
+def _status_eh_pendente_tv(status):
+    """
+    Para o bloco 'Aconteceu agora', um ticket novo só permanece enquanto
+    estiver no grupo de chamados abertos/pendentes.
+
+    Assim que virar Em Andamento, Aguardando Terceiros, Aguardando
+    Solicitante, Concluído etc., ele some do aviso de novo chamado.
+    """
+    return classificar_status_grupo(status) == "Abertos"
+
+
+def _limpar_novos_chamados_nao_pendentes_tv(df_chamados):
+    """
+    Remove imediatamente do 'Aconteceu agora' os eventos de novo chamado
+    cujo ticket deixou de estar pendente.
+
+    Eventos de Citel/Roadmap não são afetados.
+    """
+    if df_chamados.empty:
+        return
+
+    status_por_ticket = {
+        str(row.get("id_chamado", "") or "").strip(): row.get("status", "")
+        for _, row in df_chamados.iterrows()
+    }
+
+    eventos = list(
+        st.session_state.get(
+            "tv_eventos_recentes",
+            [],
+        )
+    )
+
+    filtrados = []
+
+    for evento in eventos:
+        if evento.get("tipo") != "novo_chamado":
+            filtrados.append(evento)
+            continue
+
+        ticket = str(
+            evento.get("ticket", "") or ""
+        ).strip()
+
+        status_atual = status_por_ticket.get(ticket)
+
+        # Se o ticket nem existe mais na base, também não faz sentido
+        # manter o aviso na TV.
+        if status_atual is None:
+            continue
+
+        if _status_eh_pendente_tv(status_atual):
+            filtrados.append(evento)
+
+    st.session_state.tv_eventos_recentes = filtrados
+
+
+@st.cache_data(show_spinner=False)
+def _gerar_ding_tv():
+    """
+    Gera em memória um ding curto de duas notas.
+    Não depende de MP3, CDN ou arquivo externo.
+    """
+    sample_rate = 22050
+    duracao_total = 0.42
+    total_samples = int(sample_rate * duracao_total)
+
+    buffer = io.BytesIO()
+
+    with wave.open(buffer, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+
+        frames = bytearray()
+
+        for i in range(total_samples):
+            t = i / sample_rate
+
+            # Duas frequências suaves para parecer um ding, não um alarme.
+            tom_1 = math.sin(2 * math.pi * 880 * t)
+            tom_2 = math.sin(2 * math.pi * 1320 * t)
+
+            # Envelope: entrada rápida e queda suave.
+            ataque = min(1.0, t / 0.018)
+            queda = math.exp(-6.8 * t)
+            envelope = ataque * queda
+
+            valor = 0.38 * envelope * (
+                0.72 * tom_1
+                + 0.28 * tom_2
+            )
+
+            amostra = int(
+                max(-1.0, min(1.0, valor))
+                * 32767
+            )
+
+            frames.extend(
+                struct.pack("<h", amostra)
+            )
+
+        wav_file.writeframes(bytes(frames))
+
+    return buffer.getvalue()
+
+
+def _tocar_ding_novo_chamado_tv():
+    """
+    O autoplay do navegador pode exigir que o usuário tenha interagido
+    previamente com a página. Entrar no Modo TV normalmente já conta
+    como essa interação.
+    """
+    st.audio(
+        _gerar_ding_tv(),
+        format="audio/wav",
+        autoplay=True,
+    )
+
+
 def _detectar_novos_chamados_tv(
     df_chamados,
 ):
+    """
+    Retorna a lista de tickets NOVOS e ainda PENDENTES detectados neste ciclo.
+
+    O retorno permite tocar o som somente uma vez, exatamente no ciclo
+    em que o ticket apareceu pela primeira vez.
+    """
     ids_atuais = {
         str(v).strip()
         for v
@@ -2836,11 +2966,13 @@ def _detectar_novos_chamados_tv(
         st.session_state.tv_snapshot_ids = (
             list(ids_atuais)
         )
-        return
+        return []
 
     novos = (
         ids_atuais - set(anterior)
     )
+
+    novos_pendentes = []
 
     if novos:
         lookup = {
@@ -2857,16 +2989,23 @@ def _detectar_novos_chamados_tv(
         for ticket in sorted(novos):
             chamado = lookup.get(ticket)
 
-            titulo = (
-                str(
-                    chamado.get(
-                        "titulo",
-                        "",
-                    )
-                    or "Novo chamado"
+            if chamado is None:
+                continue
+
+            # Se o ticket apareceu na planilha já como Em Andamento,
+            # Aguardando Terceiro etc., não entra como "novo pendente"
+            # e não toca som.
+            if not _status_eh_pendente_tv(
+                chamado.get("status", "")
+            ):
+                continue
+
+            titulo = str(
+                chamado.get(
+                    "titulo",
+                    "",
                 )
-                if chamado is not None
-                else "Novo chamado"
+                or "Novo chamado"
             )
 
             _adicionar_evento_tv(
@@ -2876,9 +3015,13 @@ def _detectar_novos_chamados_tv(
                 titulo,
             )
 
+            novos_pendentes.append(ticket)
+
     st.session_state.tv_snapshot_ids = (
         list(ids_atuais)
     )
+
+    return novos_pendentes
 
 
 def _processar_citel_tv(
@@ -3193,9 +3336,20 @@ def render_conteudo_modo_tv():
     # Não consultamos a API da Citel e não recarregamos a aba terceiros.
     df_tv = carregar_dados()
 
-    _detectar_novos_chamados_tv(
+    # Primeiro remove da TV qualquer aviso de ticket novo que já foi
+    # assumido/tratado e deixou de estar pendente.
+    _limpar_novos_chamados_nao_pendentes_tv(
         df_tv
     )
+
+    novos_pendentes = _detectar_novos_chamados_tv(
+        df_tv
+    )
+
+    # Toca UMA vez por ciclo, mesmo que vários chamados tenham entrado
+    # juntos. O aviso visual continua mostrando cada ticket separadamente.
+    if novos_pendentes:
+        _tocar_ding_novo_chamado_tv()
 
     # Para o alerta interno de chamados parados, usamos as datas
     # do próprio chamado. Isso mantém o refresh leve.
@@ -3451,6 +3605,12 @@ def render_conteudo_modo_tv():
     # ========================================================
     # ACONTECEU AGORA
     # ========================================================
+    # Garante também no momento da renderização que um ticket assumido
+    # não fique aparecendo até o próximo ciclo.
+    _limpar_novos_chamados_nao_pendentes_tv(
+        df_tv
+    )
+
     eventos = list(
         st.session_state.get(
             "tv_eventos_recentes",
@@ -3920,6 +4080,11 @@ def render_modo_tv():
             }
 
             header[data-testid="stHeader"] {
+                display: none !important;
+            }
+
+            /* O som de novo chamado toca sem exibir o player na TV. */
+            div[data-testid="stAudio"] {
                 display: none !important;
             }
 
