@@ -73,13 +73,13 @@ def formatar_tempo(minutos):
 # CARREGAMENTO E TRATAMENTO DE DADOS (CORRIGIDO)
 # ============================================================
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=60, show_spinner=False)
 def carregar_origem_planilha():
     """Evita buscar a mesma planilha duas vezes para chamados e terceiros."""
     return carregar_chamados()
 
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=60, show_spinner=False)
 def carregar_dados():
     colunas_obrigatorias = [
         "id_chamado", "solicitante", "titulo", "ocorrencia", "status",
@@ -221,11 +221,13 @@ def carregar_dados():
 df = carregar_dados()
 
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=60, show_spinner=False)
 def carregar_dados_terceiros():
     """
-    Carrega a aba/tabela de terceiros sem alterar o formato atual dos chamados.
-    Na planilha da Ferpam, terceiros.id_chamado aponta para chamados.id_appsheet.
+    Carrega a aba/tabela de terceiros.
+
+    Otimização: quando services.sheets possui carregar_terceiros(), usa essa
+    função diretamente em vez de consultar primeiro a origem de chamados.
     """
     colunas = [
         "id_terceiro", "id_chamado", "data_solicitação", "ultima_atualizacao",
@@ -233,22 +235,24 @@ def carregar_dados_terceiros():
     ]
 
     try:
-        origem = carregar_origem_planilha()
         df_t = pd.DataFrame()
 
-        if isinstance(origem, dict):
-            for chave in ["terceiros", "Terceiros", "TERCEIROS"]:
-                if chave in origem:
-                    valor = origem[chave]
-                    df_t = valor.copy() if isinstance(valor, pd.DataFrame) else pd.DataFrame(valor)
-                    break
-
-        # Fallback para projetos em que services.sheets possui uma função própria.
-        if df_t.empty and carregar_terceiros is not None:
+        if carregar_terceiros is not None:
             valor = carregar_terceiros()
             if isinstance(valor, dict):
-                valor = valor.get("terceiros", list(valor.values())[0] if valor else [])
+                valor = valor.get(
+                    "terceiros",
+                    list(valor.values())[0] if valor else [],
+                )
             df_t = valor.copy() if isinstance(valor, pd.DataFrame) else pd.DataFrame(valor)
+        else:
+            origem = carregar_origem_planilha()
+            if isinstance(origem, dict):
+                for chave in ["terceiros", "Terceiros", "TERCEIROS"]:
+                    if chave in origem:
+                        valor = origem[chave]
+                        df_t = valor.copy() if isinstance(valor, pd.DataFrame) else pd.DataFrame(valor)
+                        break
 
         if df_t.empty:
             return pd.DataFrame(columns=colunas)
@@ -257,7 +261,6 @@ def carregar_dados_terceiros():
         df_t = df_t.loc[:, df_t.columns != ""]
         df_t = df_t.loc[:, ~df_t.columns.duplicated()]
 
-        # Aceita pequenas variações de nome vindas da fonte.
         mapa = {
             "terceiro": "nome_terceiro",
             "empresa": "nome_terceiro",
@@ -277,15 +280,13 @@ def carregar_dados_terceiros():
             if col not in df_t.columns:
                 df_t[col] = ""
 
-        for col in ["id_terceiro", "id_chamado", "nome_terceiro", "link"]:
+        for col in ["id_terceiro", "id_chamado", "nome_terceiro", "link", "id_ticket"]:
             df_t[col] = df_t[col].fillna("").astype(str).str.strip()
             df_t[col] = df_t[col].replace({"nan": "", "None": "", "null": "", "<NA>": ""})
 
         return df_t
 
     except Exception:
-        # A consulta de chamados continua funcionando mesmo se a aba terceiros
-        # estiver temporariamente indisponível.
         return pd.DataFrame(columns=colunas)
 
 
@@ -1322,6 +1323,85 @@ def _validar_resposta_citel(resposta):
         raise RuntimeError(f"API da Citel respondeu HTTP {resposta.status_code}.")
 
 
+
+@st.cache_data(ttl=55, show_spinner=False)
+def consultar_status_request_citel(ticket_id):
+    """
+    Consulta apenas o status do Request na Citel/Zendesk.
+    Não altera o chamado externo.
+    """
+    ticket_id = str(ticket_id or "").strip()
+
+    if not ticket_id or not ticket_id.isdigit():
+        return {
+            "ok": False,
+            "status": "",
+            "resolvido": False,
+            "erro": "ID do chamado da Citel inválido.",
+        }
+
+    headers, auth, erro_config = _auth_citel()
+    if erro_config:
+        return {
+            "ok": False,
+            "status": "",
+            "resolvido": False,
+            "erro": erro_config,
+        }
+
+    try:
+        resposta = requests.get(
+            f"{CITEL_API_BASE}/requests/{ticket_id}",
+            headers=headers,
+            auth=auth,
+            timeout=8,
+        )
+        _validar_resposta_citel(resposta)
+
+        request_data = resposta.json().get("request", {})
+        status = str(request_data.get("status", "") or "").strip().casefold()
+        solved_flag = request_data.get("solved") is True
+
+        return {
+            "ok": True,
+            "status": status,
+            "resolvido": bool(solved_flag or status in {"solved", "closed"}),
+            "updated_at": request_data.get("updated_at"),
+        }
+
+    except requests.RequestException:
+        return {
+            "ok": False,
+            "status": "",
+            "resolvido": False,
+            "erro": "Não foi possível conectar ao portal da Citel.",
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "status": "",
+            "resolvido": False,
+            "erro": str(e),
+        }
+
+
+def _status_ferpam_aguardando_terceiro(status):
+    texto = _normalizar_sem_acento(status).casefold().strip()
+    return "aguardando terceiro" in texto
+
+
+def _rotulo_status_citel(status):
+    mapa = {
+        "new": "Novo",
+        "open": "Aberto",
+        "pending": "Pendente",
+        "hold": "Em espera",
+        "solved": "Resolvido",
+        "closed": "Fechado",
+    }
+    valor = str(status or "").strip().casefold()
+    return mapa.get(valor, valor.title() if valor else "-")
+
 def _listar_comentarios_citel_por_papel(ticket_id, role, headers, auth):
     """
     Lista comentários públicos do request para um único papel.
@@ -1729,6 +1809,7 @@ def _assinatura_problema(linha):
     return " ".join(sorted(tokens[:5]))
 
 
+@st.cache_data(ttl=180, show_spinner=False)
 def obter_problemas_recorrentes(df_base, minimo=2, limite=15):
     if df_base.empty:
         return pd.DataFrame(columns=["Problema", "Quantidade", "Exemplo", "Departamentos", "Tickets"])
@@ -1771,6 +1852,7 @@ def _similaridade_problemas(tokens_a, tokens_b, texto_a="", texto_b=""):
     return max(jaccard, seq * 0.85)
 
 
+@st.cache_data(ttl=120, show_spinner=False)
 def detectar_possiveis_recorrencias(df_base, dias=7, minimo=3, limite_registros=250):
     if df_base.empty or "dt_abertura" not in df_base.columns:
         return []
@@ -1833,6 +1915,7 @@ def calcular_backlog_ate(df_base, fim_periodo):
     return int((abriu & ainda_nao_fechou).sum())
 
 
+@st.cache_data(ttl=180, show_spinner=False)
 def metricas_mes(df_base, periodo):
     inicio = periodo.to_timestamp(how="start")
     fim = periodo.to_timestamp(how="end")
@@ -1869,44 +1952,67 @@ def _delta_num(atual, anterior, sufixo=""):
     return f"{sinal}{diff:.1f}{sufixo}" if isinstance(diff, float) else f"{sinal}{diff}{sufixo}"
 
 
-def montar_base_terceiros_admin():
+@st.cache_data(ttl=120, show_spinner=False)
+def montar_base_terceiros_admin(df_chamados, df_terceiros_base):
+    """Monta a base administrativa de terceiros com merge vetorizado."""
     colunas_saida = [
         "id_chamado", "ticket_ferpam", "titulo", "status_ferpam", "grupo_status",
         "tecnico", "departamento", "nome_terceiro", "link", "id_ticket", "roadmap",
         "data_solicitação", "ultima_atualizacao"
     ]
-    if df_terceiros.empty:
+
+    if df_terceiros_base.empty:
         return pd.DataFrame(columns=colunas_saida)
 
-    lookup = {}
-    for _, chamado in df.iterrows():
-        for chave in [chamado.get("id_appsheet", ""), chamado.get("id_chamado", "")]:
-            chave_limpa = str(chave or "").strip().casefold()
-            if chave_limpa and chave_limpa not in lookup:
-                lookup[chave_limpa] = chamado
+    terceiros = df_terceiros_base.copy()
+    chamados = df_chamados.copy()
 
-    registros = []
-    for _, terceiro in df_terceiros.iterrows():
-        chave = str(terceiro.get("id_chamado", "") or "").strip().casefold()
-        chamado = lookup.get(chave)
-        status = str(chamado.get("status", "") if chamado is not None else "").strip()
-        registros.append({
-            "id_chamado": str(terceiro.get("id_chamado", "") or "").strip(),
-            "ticket_ferpam": str(chamado.get("id_chamado", "") if chamado is not None else "").strip(),
-            "titulo": str(chamado.get("titulo", "") if chamado is not None else "").strip(),
-            "status_ferpam": status,
-            "grupo_status": classificar_status_grupo(status) if status else "Não localizado",
-            "tecnico": str(chamado.get("tecnico", "") if chamado is not None else "").strip(),
-            "departamento": str(chamado.get("departamento", "") if chamado is not None else "").strip(),
-            "nome_terceiro": str(terceiro.get("nome_terceiro", "") or "").strip() or "Não informado",
-            "link": str(terceiro.get("link", "") or "").strip(),
-            "id_ticket": str(terceiro.get("id_ticket", "") or "").strip(),
-            "roadmap": str(terceiro.get("roadmap", "") or "").strip(),
-            "data_solicitação": str(terceiro.get("data_solicitação", "") or "").strip(),
-            "ultima_atualizacao": str(terceiro.get("ultima_atualizacao", "") or "").strip(),
-        })
+    for col in ["id_appsheet", "id_chamado", "titulo", "status", "tecnico", "departamento"]:
+        if col not in chamados.columns:
+            chamados[col] = ""
 
-    return pd.DataFrame(registros, columns=colunas_saida)
+    terceiros["_join_key"] = (
+        terceiros["id_chamado"].fillna("").astype(str).str.strip().str.casefold()
+    )
+
+    campos_chamado = ["id_chamado", "titulo", "status", "tecnico", "departamento"]
+
+    mapa_app = chamados[["id_appsheet"] + campos_chamado].copy()
+    mapa_app["_join_key"] = mapa_app["id_appsheet"].fillna("").astype(str).str.strip().str.casefold()
+
+    mapa_visivel = chamados[campos_chamado].copy()
+    mapa_visivel["_join_key"] = mapa_visivel["id_chamado"].fillna("").astype(str).str.strip().str.casefold()
+
+    mapa_app = mapa_app.drop(columns=["id_appsheet"])
+    mapa = pd.concat([mapa_app, mapa_visivel], ignore_index=True)
+    mapa = mapa[mapa["_join_key"] != ""].drop_duplicates("_join_key", keep="first")
+
+    merged = terceiros.merge(
+        mapa,
+        how="left",
+        on="_join_key",
+        suffixes=("_terceiro", "_chamado"),
+    )
+
+    status = merged["status"].fillna("").astype(str).str.strip()
+
+    saida = pd.DataFrame({
+        "id_chamado": merged["id_chamado_terceiro"].fillna("").astype(str).str.strip(),
+        "ticket_ferpam": merged["id_chamado_chamado"].fillna("").astype(str).str.strip(),
+        "titulo": merged["titulo"].fillna("").astype(str).str.strip(),
+        "status_ferpam": status,
+        "grupo_status": status.map(lambda s: classificar_status_grupo(s) if s else "Não localizado"),
+        "tecnico": merged["tecnico"].fillna("").astype(str).str.strip(),
+        "departamento": merged["departamento"].fillna("").astype(str).str.strip(),
+        "nome_terceiro": merged["nome_terceiro"].fillna("").astype(str).str.strip().replace("", "Não informado"),
+        "link": merged["link"].fillna("").astype(str).str.strip(),
+        "id_ticket": merged["id_ticket"].fillna("").astype(str).str.strip(),
+        "roadmap": merged["roadmap"].fillna("").astype(str).str.strip(),
+        "data_solicitação": merged["data_solicitação"].fillna("").astype(str).str.strip(),
+        "ultima_atualizacao": merged["ultima_atualizacao"].fillna("").astype(str).str.strip(),
+    })
+
+    return saida[colunas_saida]
 
 
 def _resumo_texto(valor, limite=260):
@@ -4991,7 +5097,7 @@ if st.session_state.tela == "dashboard":
             )
 
             base_terc = (
-                montar_base_terceiros_admin()
+                montar_base_terceiros_admin(df, df_terceiros)
             )
 
             if base_terc.empty:
@@ -5172,6 +5278,17 @@ if st.session_state.tela == "dashboard":
                         tz="UTC"
                     )
 
+                    # Botão manual deve buscar o estado atual, não um snapshot
+                    # ainda dentro do TTL das consultas externas.
+                    try:
+                        consultar_vez_resposta_citel.clear()
+                    except Exception:
+                        pass
+                    try:
+                        consultar_status_request_citel.clear()
+                    except Exception:
+                        pass
+
                     for _, item in (
                         citel_ativos
                         .head(limite_live)
@@ -5195,6 +5312,23 @@ if st.session_state.tela == "dashboard":
                                 ticket_citel
                             )
                         )
+
+                        status_ferpam_item = str(
+                            item.get("status_ferpam", "") or ""
+                        ).strip()
+
+                        status_externo = {
+                            "ok": False,
+                            "status": "",
+                            "resolvido": False,
+                        }
+
+                        # Esta terceira chamada só é necessária para o caso
+                        # que queremos auditar: Ferpam ainda aguardando terceiro.
+                        if _status_ferpam_aguardando_terceiro(status_ferpam_item):
+                            status_externo = consultar_status_request_citel(
+                                ticket_citel
+                            )
 
                         ultima_dt = pd.to_datetime(
                             situacao.get(
@@ -5246,6 +5380,19 @@ if st.session_state.tela == "dashboard":
                                 "tecnico",
                                 "",
                             ),
+                            "Status Ferpam": status_ferpam_item,
+                            "Status Citel": (
+                                _rotulo_status_citel(
+                                    status_externo.get("status")
+                                )
+                                if status_externo.get("ok")
+                                else "-"
+                            ),
+                            "resolvido_citel_pendente_ferpam": bool(
+                                _status_ferpam_aguardando_terceiro(status_ferpam_item)
+                                and status_externo.get("ok")
+                                and status_externo.get("resolvido")
+                            ),
                             "Estado": (
                                 situacao.get(
                                     "titulo"
@@ -5294,6 +5441,14 @@ if st.session_state.tela == "dashboard":
                         live
                     )
 
+                    # Compatibilidade com sessão já aberta durante um redeploy.
+                    if "resolvido_citel_pendente_ferpam" not in live_df.columns:
+                        live_df["resolvido_citel_pendente_ferpam"] = False
+                    if "Status Ferpam" not in live_df.columns:
+                        live_df["Status Ferpam"] = "-"
+                    if "Status Citel" not in live_df.columns:
+                        live_df["Status Citel"] = "-"
+
                     aguardando_ti = live_df[
                         live_df[
                             "estado_codigo"
@@ -5333,6 +5488,12 @@ if st.session_state.tela == "dashboard":
                         )
                     ]
 
+                    resolvidos_citel_pendentes_ferpam = live_df[
+                        live_df[
+                            "resolvido_citel_pendente_ferpam"
+                        ] == True
+                    ].copy()
+
                     indisponiveis = live_df[
                         ~live_df[
                             "estado_codigo"
@@ -5349,7 +5510,8 @@ if st.session_state.tela == "dashboard":
                         lc3,
                         lc4,
                         lc5,
-                    ) = st.columns(5)
+                        lc6,
+                    ) = st.columns(6)
 
                     with lc1:
                         st.metric(
@@ -5377,6 +5539,12 @@ if st.session_state.tela == "dashboard":
 
                     with lc5:
                         st.metric(
+                            "⚠️ Resolvido Citel / Ferpam pendente",
+                            len(resolvidos_citel_pendentes_ferpam),
+                        )
+
+                    with lc6:
+                        st.metric(
                             "Consulta indisponível",
                             len(indisponiveis),
                         )
@@ -5394,6 +5562,7 @@ if st.session_state.tela == "dashboard":
                             columns=[
                                 "estado_codigo",
                                 "dias_sem_interacao",
+                                "resolvido_citel_pendente_ferpam",
                             ]
                         )
                     )
@@ -5403,6 +5572,44 @@ if st.session_state.tela == "dashboard":
                         use_container_width=True,
                         hide_index=True,
                     )
+
+                    if not resolvidos_citel_pendentes_ferpam.empty:
+                        st.markdown(
+                            "##### ⚠️ Citel já resolveu, mas a Ferpam ainda está aguardando terceiro"
+                        )
+                        st.warning(
+                            f"Encontrado(s) {len(resolvidos_citel_pendentes_ferpam)} chamado(s) que precisam de revisão interna."
+                        )
+                        st.caption(
+                            "Entram aqui somente chamados cujo status na Ferpam contém 'Aguardando Terceiro' e cujo Request da Citel está como Resolvido ou Fechado."
+                        )
+
+                        for idx_div, item_div in resolvidos_citel_pendentes_ferpam.iterrows():
+                            with st.container(border=True):
+                                c_d1, c_d2 = st.columns([8, 2])
+
+                                with c_d1:
+                                    st.markdown(
+                                        f"**⚠️ Ferpam #{item_div['Ticket Ferpam']} | Citel #{item_div['Ticket Citel']}**"
+                                    )
+                                    st.write(item_div.get("Título") or "Sem título")
+                                    st.caption(
+                                        f"FerPam: {item_div.get('Status Ferpam') or '-'} • Citel: {item_div.get('Status Citel') or '-'} • Técnico: {item_div.get('Técnico') or 'Não atribuído'}"
+                                    )
+
+                                with c_d2:
+                                    if item_div["Ticket Ferpam"]:
+                                        st.button(
+                                            "👁️ Abrir",
+                                            key=(
+                                                "btn_live_divergencia_"
+                                                f"{idx_div}_"
+                                                f"{item_div['Ticket Ferpam']}"
+                                            ),
+                                            on_click=abrir_ticket,
+                                            args=(item_div["Ticket Ferpam"],),
+                                            use_container_width=True,
+                                        )
 
                     if not roadmaps_live.empty:
                         st.markdown(
