@@ -25,8 +25,9 @@ HEADERS_AUDITORIA = [
 ]
 
 
+@st.cache_resource(show_spinner=False)
 def conectar_google_sheets():
-    """Cria um cliente gspread usando somente o service account dos Secrets."""
+    """Reutiliza o cliente gspread entre reruns para evitar reautenticação desnecessária."""
     creds_dict = dict(st.secrets["gcp_service_account"])
 
     if "private_key" in creds_dict:
@@ -39,7 +40,9 @@ def conectar_google_sheets():
     return gspread.authorize(creds)
 
 
+@st.cache_resource(show_spinner=False)
 def _abrir_planilha():
+    """Reutiliza o objeto Spreadsheet; as leituras das abas continuam controladas por cache_data."""
     client = conectar_google_sheets()
     return client.open_by_key(ID_PLANILHA)
 
@@ -58,7 +61,7 @@ def carregar_aba(nome_aba):
     return pd.DataFrame(linhas, columns=headers)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, show_spinner=False)
 def carregar_chamados():
     try:
         return carregar_aba("chamados")
@@ -67,7 +70,7 @@ def carregar_chamados():
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, show_spinner=False)
 def carregar_terceiros():
     try:
         return carregar_aba("terceiros")
@@ -135,7 +138,7 @@ def registrar_auditoria(usuario_admin, evento, ticket="", detalhes="", sessao=""
         return False
 
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=60, show_spinner=False)
 def carregar_auditoria():
     """Carrega os registros de auditoria. Se a aba ainda não existir, retorna vazio."""
     try:
