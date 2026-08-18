@@ -4540,6 +4540,8 @@ if st.session_state.tela == "dashboard":
                 df_dash = df_dash[df_dash["departamento"].str.casefold() == str(val_f).casefold()]
             elif tipo_f == "tecnico":
                 df_dash = df_dash[df_dash["tecnico"].str.casefold() == str(val_f).casefold()]
+            elif tipo_f == "titulo":
+                df_dash = df_dash[df_dash["titulo"].str.casefold() == str(val_f).casefold()]
 
         # Todos os componentes abaixo usam a MESMA base filtrada.
         df_filtrado_exibir = df_dash.copy()
@@ -4603,7 +4605,19 @@ if st.session_state.tela == "dashboard":
         st.divider()
 
         if tipo_f and val_f:
-            st.info(f"🔎 **Filtro ativo no Dashboard:** {tipo_f.upper()} = **{val_f}** ({len(df_filtrado_exibir)} chamados)")
+            nomes_filtros = {
+                "status_grupo": "STATUS",
+                "status": "STATUS",
+                "prioridade": "PRIORIDADE",
+                "departamento": "DEPARTAMENTO",
+                "tecnico": "TÉCNICO",
+                "titulo": "TÍTULO",
+            }
+            nome_filtro_ativo = nomes_filtros.get(tipo_f, str(tipo_f).upper())
+            st.info(
+                f"🔎 **Filtro ativo no Dashboard:** {nome_filtro_ativo} = "
+                f"**{val_f}** ({len(df_filtrado_exibir)} chamados)"
+            )
             if st.button("❌ Limpar Filtro Selecionado", type="secondary"):
                 limpar_filtro_dash()
                 st.rerun()
@@ -4657,6 +4671,90 @@ if st.session_state.tela == "dashboard":
             fig_tec = aplicar_layout_plotly(fig_tec)
             ev_tec = st.plotly_chart(fig_tec, use_container_width=True, on_select="rerun", selection_mode="points")
             processar_clique_grafico(ev_tec, "tecnico")
+
+        st.divider()
+
+        st.subheader("🏷️ Chamados por Título")
+        st.caption(
+            "Clique em uma barra para filtrar todo o dashboard por aquele título."
+        )
+
+        titulo_counts = (
+            df_dash["titulo"]
+            .replace("", "Sem título")
+            .value_counts()
+            .reset_index()
+        )
+        titulo_counts.columns = ["Título", "Quantidade"]
+
+        if not titulo_counts.empty:
+            limite_titulos_grafico = 15
+            titulo_counts_grafico = titulo_counts.head(limite_titulos_grafico).copy()
+            titulo_counts_grafico = titulo_counts_grafico.sort_values(
+                "Quantidade", ascending=True
+            )
+
+            altura_titulos = max(
+                360,
+                min(680, 90 + len(titulo_counts_grafico) * 34)
+            )
+
+            fig_titulos = px.bar(
+                titulo_counts_grafico,
+                x="Quantidade",
+                y="Título",
+                orientation="h",
+                text="Quantidade",
+                custom_data=["Título"],
+                color_discrete_sequence=[AZUL_FERPAM],
+            )
+
+            fig_titulos.update_traces(
+                textposition="outside",
+                cliponaxis=False,
+                hovertemplate="<b>%{y}</b><br>Chamados: %{x}<extra></extra>",
+            )
+
+            fig_titulos.update_layout(
+                height=altura_titulos,
+                showlegend=False,
+                margin=dict(l=20, r=45, t=10, b=20),
+                yaxis=dict(title="", automargin=True),
+                xaxis=dict(title="Quantidade de chamados", rangemode="tozero"),
+            )
+
+            fig_titulos = aplicar_layout_plotly(fig_titulos)
+
+            ev_titulos = st.plotly_chart(
+                fig_titulos,
+                use_container_width=True,
+                on_select="rerun",
+                selection_mode="points",
+                key="grafico_titulos_dashboard",
+            )
+
+            processar_clique_grafico(ev_titulos, "titulo")
+
+            if len(titulo_counts) > limite_titulos_grafico:
+                st.caption(
+                    f"Exibindo os {limite_titulos_grafico} títulos mais frequentes "
+                    f"de {len(titulo_counts)} títulos encontrados."
+                )
+
+            with st.expander("📋 Ver ranking completo de títulos", expanded=False):
+                ranking_titulos = titulo_counts.copy()
+                ranking_titulos.insert(
+                    0,
+                    "Posição",
+                    range(1, len(ranking_titulos) + 1)
+                )
+                st.dataframe(
+                    ranking_titulos,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+        else:
+            st.info("Nenhum título encontrado para os critérios selecionados.")
 
         st.divider()
 
