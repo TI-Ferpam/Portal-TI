@@ -6,4 +6,4 @@ plotly
 gspread
 google-auth
 openpyxl
-
+extra-streamlit-components==0.1.81
