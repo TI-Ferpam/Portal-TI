@@ -1686,12 +1686,20 @@ def render_acompanhamento_citel(chamado):
     if citel.empty:
         return
 
-    # Não polui chamados já concluídos com um "aguardando" antigo.
-    if classificar_status_grupo(chamado.get("status", "")) == "Concluídos":
-        return
+    chamado_concluido = (
+        classificar_status_grupo(chamado.get("status", "")) == "Concluídos"
+    )
 
     st.divider()
-    st.subheader("🌐 Acompanhamento com a Citel")
+
+    if chamado_concluido:
+        st.subheader("🌐 Atendimento realizado com a Citel")
+        st.caption(
+            "O chamado interno já foi concluído, mas o histórico do atendimento "
+            "realizado com a Citel continua disponível para consulta."
+        )
+    else:
+        st.subheader("🌐 Acompanhamento com a Citel")
 
     for idx_citel, item in citel.reset_index(drop=True).iterrows():
         link = str(item.get("link", "") or "").strip()
@@ -1704,31 +1712,39 @@ def render_acompanhamento_citel(chamado):
                 if ticket_citel:
                     st.caption(f"Chamado Citel #{ticket_citel}")
 
-                resultado_citel = consultar_vez_resposta_citel(ticket_citel)
-
-                if resultado_citel.get("ok") and resultado_citel.get("estado") == "roadmap":
-                    st.info("🟣 **Chamado em Roadmap na Citel**")
+                if chamado_concluido:
+                    st.success("✅ **Chamado da Ferpam concluído**")
                     st.write(
-                        "A Citel informou que este chamado está em Roadmap. "
-                        "Neste momento não há resposta pendente da TI nem da Citel."
+                        "Este atendimento teve participação da Citel. "
+                        "Você ainda pode consultar todo o histórico público "
+                        "da conversa realizada no chamado externo."
                     )
-
-                elif resultado_citel.get("ok") and resultado_citel.get("estado") == "aguardando_citel":
-                    st.warning("🟡 **Aguardando resposta da Citel**")
-                    st.write("A nossa TI já respondeu. Agora estamos esperando o retorno da Citel.")
-
-                elif resultado_citel.get("ok") and resultado_citel.get("estado") == "aguardando_ti":
-                    st.info("🔵 **Citel respondeu — aguardando TI**")
-                    st.write("A Citel já respondeu no chamado externo. Agora o retorno está com a nossa TI.")
-
                 else:
-                    st.info("⚪ **Não foi possível verificar a resposta da Citel agora.**")
-                    if st.session_state.get("autenticado_admin"):
-                        st.caption(f"Admin: {resultado_citel.get('erro', 'Erro não identificado')}")
+                    resultado_citel = consultar_vez_resposta_citel(ticket_citel)
 
-                data_str = formatar_data_citel(resultado_citel.get("ultima_data"))
-                if data_str:
-                    st.caption(f"Última interação considerada: {data_str}")
+                    if resultado_citel.get("ok") and resultado_citel.get("estado") == "roadmap":
+                        st.info("🟣 **Chamado em Roadmap na Citel**")
+                        st.write(
+                            "A Citel informou que este chamado está em Roadmap. "
+                            "Neste momento não há resposta pendente da TI nem da Citel."
+                        )
+
+                    elif resultado_citel.get("ok") and resultado_citel.get("estado") == "aguardando_citel":
+                        st.warning("🟡 **Aguardando resposta da Citel**")
+                        st.write("A nossa TI já respondeu. Agora estamos esperando o retorno da Citel.")
+
+                    elif resultado_citel.get("ok") and resultado_citel.get("estado") == "aguardando_ti":
+                        st.info("🔵 **Citel respondeu — aguardando TI**")
+                        st.write("A Citel já respondeu no chamado externo. Agora o retorno está com a nossa TI.")
+
+                    else:
+                        st.info("⚪ **Não foi possível verificar a resposta da Citel agora.**")
+                        if st.session_state.get("autenticado_admin"):
+                            st.caption(f"Admin: {resultado_citel.get('erro', 'Erro não identificado')}")
+
+                    data_str = formatar_data_citel(resultado_citel.get("ultima_data"))
+                    if data_str:
+                        st.caption(f"Última interação considerada: {data_str}")
 
             with col_acoes:
                 st.write("")
@@ -1738,7 +1754,7 @@ def render_acompanhamento_citel(chamado):
                         "💬 Ver histórico",
                         key=f"btn_hist_citel_{ticket_citel}_{idx_citel}",
                         use_container_width=True,
-                        help="Abre somente as mensagens públicas do chamado da Citel.",
+                        help="Abre as mensagens públicas do chamado da Citel, inclusive após a conclusão do chamado interno.",
                     ):
                         if st.session_state.get("autenticado_admin"):
                             registrar_auditoria_seguro(
