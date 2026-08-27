@@ -2,6 +2,11 @@ import os
 import re
 import html
 import hmac
+import hashlib
+import base64
+import json
+import time
+import datetime
 import unicodedata
 import uuid
 import io
@@ -15,6 +20,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+
+try:
+    import extra_streamlit_components as stx
+except ImportError:
+    stx = None
+
 from services.sheets import carregar_chamados
 
 # Se o seu services.sheets já possuir uma função específica para a aba
@@ -310,6 +321,287 @@ def classificar_status_grupo(status_str):
     else:
         return "Abertos"
 
+
+# ============================================================
+# LOGIN ADMIN PERSISTENTE
+# ============================================================
+
+ADMIN_COOKIE_NAME = "ferpam_admin_session_v1"
+ADMIN_COOKIE_HOURS = 12
+
+
+def _obter_admin_config():
+    try:
+        usuario = str(
+            st.secrets.get("ADMIN_USER", "")
+        ).strip()
+        senha = str(
+            st.secrets.get("ADMIN_PASSWORD", "")
+        )
+        segredo_sessao = str(
+            st.secrets.get("ADMIN_SESSION_SECRET", "")
+        ).strip()
+    except Exception:
+        usuario = ""
+        senha = ""
+        segredo_sessao = ""
+
+    return usuario, senha, segredo_sessao
+
+
+def _chave_assinatura_admin():
+    """
+    A assinatura usa um segredo exclusivo + a senha atual do Admin.
+
+    Consequência útil:
+    - mudar ADMIN_SESSION_SECRET invalida todas as sessões;
+    - mudar ADMIN_PASSWORD também invalida todas as sessões;
+    - senha/segredo nunca são colocados no cookie.
+    """
+    usuario, senha, segredo_sessao = _obter_admin_config()
+
+    if (
+        not usuario
+        or not senha
+        or not segredo_sessao
+    ):
+        return None
+
+    material = (
+        f"ferpam-admin-session-v1|{usuario}|{senha}"
+    ).encode("utf-8")
+
+    return hmac.new(
+        segredo_sessao.encode("utf-8"),
+        material,
+        hashlib.sha256,
+    ).digest()
+
+
+def _b64url_encode(valor_bytes):
+    return (
+        base64.urlsafe_b64encode(valor_bytes)
+        .decode("ascii")
+        .rstrip("=")
+    )
+
+
+def _b64url_decode(valor):
+    valor = str(valor or "")
+    padding = "=" * (
+        (4 - len(valor) % 4) % 4
+    )
+    return base64.urlsafe_b64decode(
+        valor + padding
+    )
+
+
+def _criar_token_admin(usuario):
+    chave = _chave_assinatura_admin()
+
+    if chave is None:
+        return None
+
+    agora = int(time.time())
+
+    payload = {
+        "v": 1,
+        "u": str(usuario or "").strip(),
+        "iat": agora,
+        "exp": agora + (
+            ADMIN_COOKIE_HOURS * 60 * 60
+        ),
+    }
+
+    payload_bytes = json.dumps(
+        payload,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+    payload_b64 = _b64url_encode(
+        payload_bytes
+    )
+
+    assinatura = hmac.new(
+        chave,
+        payload_b64.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+
+    assinatura_b64 = _b64url_encode(
+        assinatura
+    )
+
+    return (
+        f"{payload_b64}.{assinatura_b64}"
+    )
+
+
+def _validar_token_admin(token):
+    """
+    Valida assinatura, expiração e usuário.
+    Nunca confia em conteúdo do navegador sem assinatura válida.
+    """
+    chave = _chave_assinatura_admin()
+
+    if chave is None:
+        return None
+
+    token = str(token or "").strip()
+
+    if not token or "." not in token:
+        return None
+
+    try:
+        payload_b64, assinatura_b64 = (
+            token.split(".", 1)
+        )
+
+        assinatura_recebida = (
+            _b64url_decode(
+                assinatura_b64
+            )
+        )
+
+        assinatura_esperada = hmac.new(
+            chave,
+            payload_b64.encode("ascii"),
+            hashlib.sha256,
+        ).digest()
+
+        if not hmac.compare_digest(
+            assinatura_recebida,
+            assinatura_esperada,
+        ):
+            return None
+
+        payload = json.loads(
+            _b64url_decode(
+                payload_b64
+            ).decode("utf-8")
+        )
+
+        if payload.get("v") != 1:
+            return None
+
+        exp = int(
+            payload.get("exp", 0)
+        )
+
+        if exp <= int(time.time()):
+            return None
+
+        admin_user_config, _, _ = (
+            _obter_admin_config()
+        )
+
+        usuario_token = str(
+            payload.get("u", "")
+        ).strip()
+
+        if (
+            not admin_user_config
+            or not usuario_token
+            or not hmac.compare_digest(
+                usuario_token,
+                admin_user_config,
+            )
+        ):
+            return None
+
+        return usuario_token
+
+    except Exception:
+        return None
+
+
+def _obter_cookie_manager():
+    if stx is None:
+        return None
+
+    try:
+        return stx.CookieManager(
+            key="ferpam_admin_cookie_manager"
+        )
+    except Exception:
+        return None
+
+
+COOKIE_MANAGER_ADMIN = (
+    _obter_cookie_manager()
+)
+
+
+def _salvar_cookie_admin(usuario):
+    """
+    Persiste apenas um token assinado no navegador.
+    A senha nunca é salva no cookie.
+    """
+    if COOKIE_MANAGER_ADMIN is None:
+        return False
+
+    token = _criar_token_admin(
+        usuario
+    )
+
+    if not token:
+        return False
+
+    try:
+        expira_em = (
+            datetime.datetime.now()
+            + datetime.timedelta(
+                hours=ADMIN_COOKIE_HOURS
+            )
+        )
+
+        COOKIE_MANAGER_ADMIN.set(
+            cookie=ADMIN_COOKIE_NAME,
+            val=token,
+            key="ferpam_admin_cookie_set",
+            path="/",
+            expires_at=expira_em,
+            secure=True,
+            same_site="strict",
+        )
+
+        return True
+
+    except Exception:
+        return False
+
+
+def _apagar_cookie_admin():
+    if COOKIE_MANAGER_ADMIN is None:
+        return False
+
+    try:
+        COOKIE_MANAGER_ADMIN.delete(
+            cookie=ADMIN_COOKIE_NAME,
+            key="ferpam_admin_cookie_delete",
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _ler_usuario_cookie_admin():
+    if COOKIE_MANAGER_ADMIN is None:
+        return None
+
+    try:
+        token = COOKIE_MANAGER_ADMIN.get(
+            ADMIN_COOKIE_NAME
+        )
+    except Exception:
+        return None
+
+    return _validar_token_admin(
+        token
+    )
+
+
 # ============================================================
 # ESTADOS DA SESSÃO E AUXILIARES
 # ============================================================
@@ -330,6 +622,17 @@ for key, val in [
 
 if not st.session_state.sessao_auditoria:
     st.session_state.sessao_auditoria = uuid.uuid4().hex[:16]
+
+
+# Em um F5 o Streamlit cria uma nova sessão e perde session_state.
+# Antes de desenhar o menu, tentamos restaurar o Admin pelo cookie assinado.
+if not st.session_state.get("autenticado_admin"):
+    usuario_cookie_admin = _ler_usuario_cookie_admin()
+
+    if usuario_cookie_admin:
+        st.session_state.autenticado_admin = True
+        st.session_state.admin_usuario = usuario_cookie_admin
+        st.session_state["login_admin_restaurado_cookie"] = True
 
 
 def registrar_auditoria_seguro(evento, ticket="", detalhes="", usuario=None):
@@ -843,49 +1146,162 @@ st.sidebar.image("https://cdn-icons-png.flaticon.com/512/1063/1063376.png", widt
 st.sidebar.title("Portal TI")
 st.sidebar.markdown("### 🔐 Autenticação Admin")
 
+admin_user_config, admin_pass_config, admin_session_secret = (
+    _obter_admin_config()
+)
+
 if not st.session_state.autenticado_admin:
-    with st.sidebar.expander("🔑 Áreas Restritas (Técnicos/Admin)", expanded=False):
-        usuario_login = st.text_input("Usuário", key="login_usr")
-        senha_login = st.text_input("Senha", type="password", key="login_pwd")
+    with st.sidebar.expander(
+        "🔑 Áreas Restritas (Técnicos/Admin)",
+        expanded=False,
+    ):
+        usuario_login = st.text_input(
+            "Usuário",
+            key="login_usr",
+        )
+        senha_login = st.text_input(
+            "Senha",
+            type="password",
+            key="login_pwd",
+        )
 
-        try:
-            admin_user_config = str(st.secrets.get("ADMIN_USER", "")).strip()
-            admin_pass_config = str(st.secrets.get("ADMIN_PASSWORD", ""))
-        except Exception:
-            admin_user_config = ""
-            admin_pass_config = ""
+        if (
+            not admin_user_config
+            or not admin_pass_config
+        ):
+            st.caption(
+                "⚠️ Login administrativo ainda não configurado nos Secrets."
+            )
 
-        if not admin_user_config or not admin_pass_config:
-            st.caption("⚠️ Login administrativo ainda não configurado nos Secrets.")
+        if stx is None:
+            st.caption(
+                "⚠️ Login persistente indisponível: "
+                "adicione extra-streamlit-components ao requirements.txt."
+            )
+        elif not admin_session_secret:
+            st.caption(
+                "⚠️ Login persistente indisponível: "
+                "configure ADMIN_SESSION_SECRET nos Secrets."
+            )
 
-        if st.button("Entrar", type="primary", use_container_width=True):
-            configurado = bool(admin_user_config and admin_pass_config)
-            usuario_ok = configurado and hmac.compare_digest(usuario_login.strip(), admin_user_config)
-            senha_ok = configurado and hmac.compare_digest(str(senha_login), admin_pass_config)
+        if st.button(
+            "Entrar",
+            type="primary",
+            use_container_width=True,
+        ):
+            configurado = bool(
+                admin_user_config
+                and admin_pass_config
+            )
+
+            usuario_ok = (
+                configurado
+                and hmac.compare_digest(
+                    usuario_login.strip(),
+                    admin_user_config,
+                )
+            )
+
+            senha_ok = (
+                configurado
+                and hmac.compare_digest(
+                    str(senha_login),
+                    admin_pass_config,
+                )
+            )
 
             if usuario_ok and senha_ok:
                 st.session_state.autenticado_admin = True
-                st.session_state.admin_usuario = admin_user_config
+                st.session_state.admin_usuario = (
+                    admin_user_config
+                )
+
+                cookie_salvo = (
+                    _salvar_cookie_admin(
+                        admin_user_config
+                    )
+                )
+
                 registrar_auditoria_seguro(
                     "LOGIN_ADMIN",
-                    detalhes="Login administrativo realizado com sucesso.",
+                    detalhes=(
+                        "Login administrativo realizado com sucesso. "
+                        + (
+                            "Sessão persistente criada."
+                            if cookie_salvo
+                            else "Sessão persistente não pôde ser criada."
+                        )
+                    ),
                     usuario=admin_user_config,
                 )
-                st.success("Login efetuado!")
+
+                st.success(
+                    "Login efetuado!"
+                )
+
+                # CookieManager executa no navegador. Um intervalo curto
+                # permite que o cookie seja gravado antes do rerun.
+                if cookie_salvo:
+                    time.sleep(0.35)
+
                 st.rerun()
+
             elif not configurado:
-                st.error("Configure ADMIN_USER e ADMIN_PASSWORD nos Secrets do Streamlit.")
+                st.error(
+                    "Configure ADMIN_USER e ADMIN_PASSWORD "
+                    "nos Secrets do Streamlit."
+                )
+
             else:
-                st.error("Usuário ou senha incorretos.")
+                st.error(
+                    "Usuário ou senha incorretos."
+                )
+
 else:
-    nome_admin_exibicao = st.session_state.get("admin_usuario") or "ADMIN"
-    st.sidebar.success(f"⚡ Conectado como {nome_admin_exibicao}")
-    if st.sidebar.button("🚪 Sair do Modo Admin", use_container_width=True):
-        registrar_auditoria_seguro("LOGOUT_ADMIN", detalhes="Sessão administrativa encerrada.")
+    nome_admin_exibicao = (
+        st.session_state.get(
+            "admin_usuario"
+        )
+        or "ADMIN"
+    )
+
+    st.sidebar.success(
+        f"⚡ Conectado como {nome_admin_exibicao}"
+    )
+
+    if st.session_state.pop(
+        "login_admin_restaurado_cookie",
+        False,
+    ):
+        registrar_auditoria_seguro(
+            "LOGIN_ADMIN_RESTAURADO",
+            detalhes=(
+                "Sessão administrativa restaurada "
+                "por cookie assinado após nova sessão/F5."
+            ),
+            usuario=nome_admin_exibicao,
+        )
+
+    if st.sidebar.button(
+        "🚪 Sair do Modo Admin",
+        use_container_width=True,
+    ):
+        registrar_auditoria_seguro(
+            "LOGOUT_ADMIN",
+            detalhes=(
+                "Sessão administrativa encerrada."
+            ),
+        )
+
+        _apagar_cookie_admin()
+
         st.session_state.autenticado_admin = False
         st.session_state.admin_usuario = ""
         st.session_state.tela = "busca"
+
         limpar_filtro_dash()
+
+        time.sleep(0.20)
         st.rerun()
 
 st.sidebar.divider()
