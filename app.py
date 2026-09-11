@@ -5204,13 +5204,42 @@ if st.session_state.tela == "dashboard":
     # TAB 2: SLAs & TEMPOS MÉDIOS
     # ============================================================
     with tab_sla:
-        st.subheader("⏱️ SLA & Métricas de Tempo (Chamados Operacionais)")
-        st.caption("Esta aba exibe as métricas limpas, ignorando chamados de longa duração catalogados como **Roadmap**.")
-        
-        df_sla_base = df[df["sla_valido"] == True].copy()
-        
-        df_sla_operacional = df_sla_base[df_sla_base["eh_roadmap"] == False]
-        df_roadmap = df_sla_base[df_sla_base["eh_roadmap"] == True]
+    st.subheader("⏱️ SLA & Métricas de Tempo (Chamados Operacionais)")
+    st.caption("Esta aba exibe as métricas limpas, ignorando chamados de longa duração catalogados como **Roadmap**.")
+    
+    df_sla_base = df[df["sla_valido"] == True].copy()
+
+    # ============================================================
+    # FILTRO POR MÊS
+    # ============================================================
+    meses_sla = (
+        df_sla_base[df_sla_base["dt_abertura"].notna()]
+        ["dt_abertura"]
+        .dt.to_period("M")
+        .drop_duplicates()
+        .sort_values(ascending=False)
+        .tolist()
+    )
+
+    if meses_sla:
+        meses_sla_labels = {
+            periodo: f"{MESES_DIC.get(periodo.month, periodo.month)}/{periodo.year}"
+            for periodo in meses_sla
+        }
+
+        periodo_sla_selecionado = st.selectbox(
+            "📅 Mês de referência",
+            options=meses_sla,
+            format_func=lambda p: meses_sla_labels[p],
+            key="mes_sla_selecionado"
+        )
+
+        df_sla_base = df_sla_base[
+            df_sla_base["dt_abertura"].dt.to_period("M") == periodo_sla_selecionado
+        ].copy()
+
+    df_sla_operacional = df_sla_base[df_sla_base["eh_roadmap"] == False]
+    df_roadmap = df_sla_base[df_sla_base["eh_roadmap"] == True]
         
         if df_sla_operacional.empty:
             st.warning("Não há chamados operacionais com as 3 datas completas para gerar estatísticas de SLA.")
