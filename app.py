@@ -5203,75 +5203,74 @@ if st.session_state.tela == "dashboard":
     # ============================================================
     # TAB 2: SLAs & TEMPOS MÉDIOS
     # ============================================================
-    with tab_sla:
-        st.subheader("⏱️ SLA & Métricas de Tempo (Chamados Operacionais)")
-        st.caption("Esta aba exibe as métricas limpas, ignorando chamados de longa duração catalogados como **Roadmap**.")
-        
-               df_sla_base = df[df["sla_valido"] == True].copy()
-
-        # ============================================================
-        # FILTRO POR MÊS
-        # ============================================================
-        meses_sla = (
-            df_sla_base[df_sla_base["dt_abertura"].notna()]
-            ["dt_abertura"]
-            .dt.to_period("M")
-            .drop_duplicates()
-            .sort_values(ascending=False)
-            .tolist()
-        )
-
-        if meses_sla:
-            opcoes_sla = ["Geral"] + meses_sla
-
-            def formatar_mes_sla(valor):
-                if valor == "Geral":
-                    return "📊 Geral — Todos os meses"
-
-                return f"{MESES_DIC.get(valor.month, valor.month)}/{valor.year}"
-
-            periodo_sla_selecionado = st.selectbox(
-                "📅 Mês de referência",
-                options=opcoes_sla,
-                format_func=formatar_mes_sla,
-                key="mes_sla_selecionado"
+        with tab_sla:
+            st.subheader("⏱️ SLA & Métricas de Tempo (Chamados Operacionais)")
+            st.caption("Esta aba exibe as métricas limpas, ignorando chamados de longa duração catalogados como **Roadmap**.")
+            
+            # ============================================================
+            # FILTRO POR MÊS
+            # ============================================================
+            df_sla_base = df[df["sla_valido"] == True].copy()
+    
+            meses_sla = (
+                df_sla_base[df_sla_base["dt_abertura"].notna()]
+                ["dt_abertura"]
+                .dt.to_period("M")
+                .drop_duplicates()
+                .sort_values(ascending=False)
+                .tolist()
             )
-
-            # Se não for Geral, aplica o filtro do mês
-            if periodo_sla_selecionado != "Geral":
-                df_sla_base = df_sla_base[
-                    df_sla_base["dt_abertura"].dt.to_period("M") == periodo_sla_selecionado
-                ].copy()
-
-        df_sla_operacional = df_sla_base[df_sla_base["eh_roadmap"] == False]
-        df_roadmap = df_sla_base[df_sla_base["eh_roadmap"] == True]
-            
-        if df_sla_operacional.empty:
-            st.warning("Não há chamados operacionais com as 3 datas completas para gerar estatísticas de SLA.")
-        else:
-            s1, s2, s3 = st.columns(3)
-            with s1:
-                st.metric("⏱️ Méd. Tempo até Atendimento", formatar_tempo(df_sla_operacional["min_ate_tecnico"].mean()))
-            with s2:
-                st.metric("🔧 Méd. Tempo de Execução", formatar_tempo(df_sla_operacional["min_resolucao"].mean()))
-            with s3:
-                st.metric("🏁 Méd. Tempo Total de Conclusão", formatar_tempo(df_sla_operacional["min_total"].mean()))
-
-            st.divider()
-
-            st.subheader("👨‍💻 Desempenho e SLA Operacional por Técnico")
-            st.caption("Clique no número de chamados de um técnico para visualizar a lista completa dos seus tickets operacionais.")
-            
-            df_tec_sla = (
-                df_sla_operacional.groupby("tecnico")
-                .agg(
-                    Chamados=("id_chamado", "count"),
-                    min_resp=("min_ate_tecnico", "mean"),
-                    min_exec=("min_resolucao", "mean"),
-                    min_total=("min_total", "mean")
+    
+            if meses_sla:
+                opcoes_sla = ["Geral"] + meses_sla
+    
+                def formatar_mes_sla(valor):
+                    if valor == "Geral":
+                        return "📊 Geral — Todos os meses"
+    
+                    return f"{MESES_DIC.get(valor.month, valor.month)}/{valor.year}"
+    
+                periodo_sla_selecionado = st.selectbox(
+                    "📅 Mês de referência",
+                    options=opcoes_sla,
+                    format_func=formatar_mes_sla,
+                    key="mes_sla_selecionado"
                 )
-                .reset_index()
-            )
+    
+                if periodo_sla_selecionado != "Geral":
+                    df_sla_base = df_sla_base[
+                        df_sla_base["dt_abertura"].dt.to_period("M") == periodo_sla_selecionado
+                    ].copy()
+    
+            df_sla_operacional = df_sla_base[df_sla_base["eh_roadmap"] == False]
+            df_roadmap = df_sla_base[df_sla_base["eh_roadmap"] == True]
+                
+            if df_sla_operacional.empty:
+                st.warning("Não há chamados operacionais com as 3 datas completas para gerar estatísticas de SLA.")
+            else:
+                s1, s2, s3 = st.columns(3)
+                with s1:
+                    st.metric("⏱️ Méd. Tempo até Atendimento", formatar_tempo(df_sla_operacional["min_ate_tecnico"].mean()))
+                with s2:
+                    st.metric("🔧 Méd. Tempo de Execução", formatar_tempo(df_sla_operacional["min_resolucao"].mean()))
+                with s3:
+                    st.metric("🏁 Méd. Tempo Total de Conclusão", formatar_tempo(df_sla_operacional["min_total"].mean()))
+    
+                st.divider()
+    
+                st.subheader("👨‍💻 Desempenho e SLA Operacional por Técnico")
+                st.caption("Clique no número de chamados de um técnico para visualizar a lista completa dos seus tickets operacionais.")
+                
+                df_tec_sla = (
+                    df_sla_operacional.groupby("tecnico")
+                    .agg(
+                        Chamados=("id_chamado", "count"),
+                        min_resp=("min_ate_tecnico", "mean"),
+                        min_exec=("min_resolucao", "mean"),
+                        min_total=("min_total", "mean")
+                    )
+                    .reset_index()
+                )
             
             df_tec_sla = df_tec_sla[df_tec_sla["tecnico"].str.strip() != ""].sort_values(by="Chamados", ascending=False)
             
