@@ -5207,8 +5207,8 @@ if st.session_state.tela == "dashboard":
         st.subheader("⏱️ SLA & Métricas de Tempo (Chamados Operacionais)")
         st.caption("Esta aba exibe as métricas limpas, ignorando chamados de longa duração catalogados como **Roadmap**.")
         
-        df_sla_base = df[df["sla_valido"] == True].copy()
-    
+               df_sla_base = df[df["sla_valido"] == True].copy()
+
         # ============================================================
         # FILTRO POR MÊS
         # ============================================================
@@ -5220,24 +5220,29 @@ if st.session_state.tela == "dashboard":
             .sort_values(ascending=False)
             .tolist()
         )
-    
+
         if meses_sla:
-            meses_sla_labels = {
-                periodo: f"{MESES_DIC.get(periodo.month, periodo.month)}/{periodo.year}"
-                for periodo in meses_sla
-            }
-    
+            opcoes_sla = ["Geral"] + meses_sla
+
+            def formatar_mes_sla(valor):
+                if valor == "Geral":
+                    return "📊 Geral — Todos os meses"
+
+                return f"{MESES_DIC.get(valor.month, valor.month)}/{valor.year}"
+
             periodo_sla_selecionado = st.selectbox(
                 "📅 Mês de referência",
-                options=meses_sla,
-                format_func=lambda p: meses_sla_labels[p],
+                options=opcoes_sla,
+                format_func=formatar_mes_sla,
                 key="mes_sla_selecionado"
             )
-    
-            df_sla_base = df_sla_base[
-                df_sla_base["dt_abertura"].dt.to_period("M") == periodo_sla_selecionado
-            ].copy()
-    
+
+            # Se não for Geral, aplica o filtro do mês
+            if periodo_sla_selecionado != "Geral":
+                df_sla_base = df_sla_base[
+                    df_sla_base["dt_abertura"].dt.to_period("M") == periodo_sla_selecionado
+                ].copy()
+
         df_sla_operacional = df_sla_base[df_sla_base["eh_roadmap"] == False]
         df_roadmap = df_sla_base[df_sla_base["eh_roadmap"] == True]
             
